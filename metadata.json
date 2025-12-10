@@ -1,0 +1,7 @@
+{
+  "name": "web 11",
+  "description": "A professional, scalable news portal with AI-powered CMS, Ads management, and real-time weather.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
