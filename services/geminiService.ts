@@ -3,7 +3,7 @@ import { Article } from "../types";
 
 // NOTE: In a production environment, this key should be hidden on the backend.
 // Using the provided key for this specific deployment as requested.
-const API_KEY = "AIzaSyAESByRBukp36X65kLNRdobGVUWPWDFMsM";
+const API_KEY = "AIzaSyB-EtwPh9Lih-coyY-fXyCNOlpsKcBm4Sw";
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export const GeminiService = {
