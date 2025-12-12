@@ -1,0 +1,131 @@
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  phoneNumber?: string; // Added for Phone Auth users
+  avatar?: string;
+  joinedAt: string;
+  role: 'user' | 'admin';
+  notificationsEnabled?: boolean;
+}
+
+export interface Comment {
+  id: string;
+  userId: string;
+  username: string;
+  userAvatar?: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface Article {
+  id: string;
+  title: string;
+  slug: string;
+  summary: string;
+  content: string;
+  category: string;
+  author: string;
+  publishedAt: string;
+  imageUrl: string;
+  gallery?: string[];
+  videoUrls?: string[];
+  views: number;
+  tags: string[];
+  comments?: Comment[];
+  isBreaking: boolean;
+  isFeatured: boolean;
+}
+
+export interface VideoPost {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  thumbnailUrl: string;
+  views: number;
+  publishedAt: string;
+  tags: string[];
+  likes: number;
+  likedBy: string[];
+  comments: Comment[];
+}
+
+export interface AdConfig {
+  id: string;
+  location: 'header_top' | 'home_middle' | 'article_sidebar' | 'article_bottom' | 'footer_top';
+  name: string;
+  enabled: boolean;
+  code: string;
+  type: 'image' | 'script';
+  googleAppId?: string;
+  googleAdUnitId?: string;
+}
+
+export interface TickerConfig {
+  visible: boolean;
+  content: string[]; // Array of 3 strings
+}
+
+export interface WeatherData {
+  city: string;
+  temp: number;
+  condition: string;
+  weatherCode: number;
+  isDay: boolean;
+  humidity: number;
+  windSpeed: number;
+  feelsLike: number;
+  uvIndex: number;
+  sunrise: string;
+  sunset: string;
+  hourly: Array<{ time: string; temp: number; iconCode: number; isDay: boolean }>;
+  forecast: Array<{ day: string; min: number; max: number; iconCode: number }>;
+}
+
+export interface ContactForm {
+  name: string;
+  email: string;
+  message: string;
+}
+
+export interface Message {
+  id: string;
+  name: string;
+  email: string;
+  content: string;
+  timestamp: string;
+  read: boolean;
+}
+
+export interface VirtualFile {
+  name: string;
+  path: string;
+  language: 'typescript' | 'javascript' | 'css' | 'json';
+  content: string;
+}
+
+export interface GithubConfig {
+  token: string;
+  owner: string;
+  repo: string;
+  branch: string;
+}
+
+export interface NotificationPayload {
+  id: string;
+  title: string;
+  body: string;
+  url: string;
+  timestamp: number;
+  type: 'article' | 'video';
+}
+
+export type Theme = 'light' | 'dark';
+
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  EDITOR = 'EDITOR',
+  USER = 'USER'
+}
