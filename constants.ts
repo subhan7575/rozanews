@@ -1,7 +1,7 @@
 import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, UserProfile, Message, TickerConfig } from './types';
 
 // UPDATED VIA ADMIN PANEL SYNC - DO NOT EDIT MANUALLY
-export const DATA_TIMESTAMP = 1765556703916;
+export const DATA_TIMESTAMP = 1765556821461;
 
 export const CATEGORIES = ['World', 'Business', 'Sports', 'Technology', 'Health', 'Entertainment'];
 
@@ -75,7 +75,16 @@ export const INITIAL_USERS: UserProfile[] = [
   }
 ];
 
-export const INITIAL_MESSAGES: Message[] = [];
+export const INITIAL_MESSAGES: Message[] = [
+  {
+    "id": "msg_1765556811440",
+    "name": "FAISAL RASHEED",
+    "email": "faisalrasheed33203@gmail.com",
+    "content": "Wow what a website I really like it \nSubhan Ahmad",
+    "timestamp": "2025-12-12T16:26:51.440Z",
+    "read": false
+  }
+];
 
 export const MOCK_ADMIN_EMAIL = "jobsofficial786@gmail.com";
 
