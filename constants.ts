@@ -1,7 +1,7 @@
 import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, UserProfile, Message, TickerConfig } from './types';
 
 // UPDATED VIA ADMIN PANEL SYNC - DO NOT EDIT MANUALLY
-export const DATA_TIMESTAMP = 1765556285477;
+export const DATA_TIMESTAMP = 1765556703916;
 
 export const CATEGORIES = ['World', 'Business', 'Sports', 'Technology', 'Health', 'Entertainment'];
 
@@ -63,7 +63,17 @@ export const INITIAL_VIDEOS: VideoPost[] = [];
 
 export const INITIAL_ARTICLES: Article[] = [];
 
-export const INITIAL_USERS: UserProfile[] = [];
+export const INITIAL_USERS: UserProfile[] = [
+  {
+    "id": "mmSSMq3pyfb4keCLZ8MT8TvOX5F2",
+    "name": "FAISAL RASHEED",
+    "email": "faisalrasheed33203@gmail.com",
+    "avatar": "https://lh3.googleusercontent.com/a/ACg8ocK4efAkwzqW70J_zWup_0O1WVgUz2U6KnOBzlSK8140fo8aVw=s96-c",
+    "joinedAt": "Fri, 12 Dec 2025 16:24:51 GMT",
+    "role": "user",
+    "notificationsEnabled": true
+  }
+];
 
 export const INITIAL_MESSAGES: Message[] = [];
 
