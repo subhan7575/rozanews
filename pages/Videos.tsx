@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { StorageService } from '../services/storageService';
@@ -62,77 +61,72 @@ const Videos: React.FC = () => {
         }, 500);
     }
 
+    // Setup Intersection Observer for auto-play
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          const videoId = entry.target.getAttribute('data-video-id');
+          if (videoId && videoRefs.current[videoId]) {
+            if (entry.isIntersecting) {
+              // Play video when visible
+              videoRefs.current[videoId]?.play().catch(e => {
+                console.log(`Auto-play prevented for video ${videoId}:`, e);
+              });
+            } else {
+              // Pause video when not visible
+              videoRefs.current[videoId]?.pause();
+            }
+          }
+        });
+      },
+      { threshold: 0.5 } // When 50% of video is visible
+    );
+
+    // Observe all video containers
+    const videoContainers = document.querySelectorAll('[data-video-id]');
+    videoContainers.forEach(container => {
+      observer.observe(container);
+    });
+
+    return () => {
+      videoContainers.forEach(container => {
+        observer.unobserve(container);
+      });
+      observer.disconnect();
+    };
   }, [location.state]);
 
   const handleLoginSuccess = (user: UserProfile) => {
     setCurrentUser(user);
     setIsAuthModalOpen(false);
     // Reload videos to update like status for new user
-    const loaded = StorageService.getVideos();
-    setAllVideos(loaded);
-    setDisplayVideos(loaded);
+    const updatedVideos = StorageService.getVideos();
+    setAllVideos(updatedVideos);
+    setDisplayVideos(updatedVideos);
   };
 
-  // Search Logic
-  useEffect(() => {
-    if (!searchQuery.trim()) {
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value.toLowerCase();
+    setSearchQuery(query);
+    
+    if (query.trim() === '') {
       setDisplayVideos(allVideos);
     } else {
-      const lower = searchQuery.toLowerCase();
-      const filtered = allVideos.filter(v => 
-        v.title.toLowerCase().includes(lower) || 
-        v.tags.some(t => t.toLowerCase().includes(lower))
+      const filtered = allVideos.filter(video =>
+        video.title.toLowerCase().includes(query) ||
+        video.description?.toLowerCase().includes(query) ||
+        video.tags?.some(tag => tag.toLowerCase().includes(query))
       );
       setDisplayVideos(filtered);
     }
-  }, [searchQuery, allVideos]);
+  };
 
-  // Intersection Observer for Auto-Play
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const videoId = entry.target.getAttribute('data-id');
-          if (!videoId) return;
-          
-          const videoElement = videoRefs.current[videoId];
-          
-          if (entry.isIntersecting && entry.intersectionRatio > 0.6) {
-             setActiveVideoId(videoId);
-             if (videoElement) {
-                // Ensure muted for autoplay compliance
-                videoElement.muted = isMuted; 
-                videoElement.play().catch(e => console.log("Autoplay prevented:", e));
-             }
-          } else {
-             if (videoElement) {
-                videoElement.pause();
-                videoElement.currentTime = 0; // Reset loop or pause
-             }
-          }
-        });
-      },
-      { threshold: 0.7 } // Trigger when 70% visible
-    );
+  const clearSearch = () => {
+    setSearchQuery('');
+    setDisplayVideos(allVideos);
+  };
 
-    const elements = document.querySelectorAll('.tiktok-video-container');
-    elements.forEach(el => observer.observe(el));
-
-    return () => observer.disconnect();
-  }, [displayVideos, isMuted]); // Re-run if mute state changes
-
-  // Sync mute state across all videos
-  useEffect(() => {
-     Object.values(videoRefs.current).forEach((video) => {
-        if(video) (video as HTMLVideoElement).muted = isMuted;
-     });
-  }, [isMuted]);
-
-  // --- ACTIONS ---
-
-  const handleLike = (e: React.MouseEvent, videoId: string) => {
-    e.stopPropagation();
-    
+  const handleToggleLike = async (videoId: string) => {
     if (!currentUser) {
       setIsAuthModalOpen(true);
       return;
@@ -140,277 +134,406 @@ const Videos: React.FC = () => {
 
     const result = StorageService.toggleLikeVideo(videoId);
     if (result.success && result.video) {
-       setAllVideos(prev => prev.map(v => v.id === videoId ? result.video! : v));
+      // Update local state
+      const updatedVideos = allVideos.map(video => 
+        video.id === videoId ? result.video! : video
+      );
+      setAllVideos(updatedVideos);
+      setDisplayVideos(displayVideos.map(video => 
+        video.id === videoId ? result.video! : video
+      ));
     }
   };
 
-  const handleShare = async (e: React.MouseEvent, video: VideoPost) => {
-    e.stopPropagation();
-    if (navigator.share) {
-       try {
-         await navigator.share({
-           title: video.title,
-           text: `Check out this video on Roza News: ${video.title}`,
-           url: window.location.href
-         });
-       } catch (e) { console.log('Share canceled'); }
-    } else {
-      await navigator.clipboard.writeText(window.location.href);
-      alert('Link copied to clipboard!');
-    }
-  };
-
-  const handleCommentClick = (videoId: string) => {
-    if (!currentUser) {
-      setIsAuthModalOpen(true);
-    } else {
-      setOpenCommentId(videoId);
-    }
-  };
-
-  const handleSubmitComment = (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleAddComment = (videoId: string) => {
     if (!currentUser) {
       setIsAuthModalOpen(true);
       return;
     }
 
-    if (!openCommentId || !newComment.trim()) return;
-    
-    const result = StorageService.addCommentToVideo(openCommentId, newComment);
+    if (!newComment.trim()) return;
+
+    const result = StorageService.addCommentToVideo(videoId, newComment);
     if (result.success && result.video) {
-      setAllVideos(prev => prev.map(v => v.id === openCommentId ? result.video! : v));
+      // Update local state
+      const updatedVideos = allVideos.map(video => 
+        video.id === videoId ? result.video! : video
+      );
+      setAllVideos(updatedVideos);
+      setDisplayVideos(displayVideos.map(video => 
+        video.id === videoId ? result.video! : video
+      ));
+      
       setNewComment('');
+      if (openCommentId !== videoId) {
+        setOpenCommentId(videoId);
+      }
     }
   };
 
-  const togglePlay = (id: string) => {
-    const video = videoRefs.current[id];
-    if (video) {
-       if (video.paused) video.play();
-       else video.pause();
+  const handleShareVideo = (video: VideoPost) => {
+    const shareUrl = `${window.location.origin}/videos/${video.id}`;
+    if (navigator.share) {
+      navigator.share({
+        title: video.title,
+        text: video.description || 'Check out this video on Roza News',
+        url: shareUrl,
+      }).catch(console.error);
+    } else {
+      navigator.clipboard.writeText(shareUrl);
+      alert('Link copied to clipboard!');
     }
   };
 
-  const toggleMute = (e: React.MouseEvent) => {
-     e.stopPropagation();
-     setIsMuted(!isMuted);
+  const handleVideoPlay = (videoId: string) => {
+    setActiveVideoId(videoId);
+    // Pause all other videos
+    Object.keys(videoRefs.current).forEach(key => {
+      if (key !== videoId && videoRefs.current[key]) {
+        videoRefs.current[key]?.pause();
+      }
+    });
+  };
+
+  const handleVideoPause = (videoId: string) => {
+    if (activeVideoId === videoId) {
+      setActiveVideoId(null);
+    }
+  };
+
+  const toggleMuteAll = () => {
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    
+    // Apply to all videos
+    Object.values(videoRefs.current).forEach(video => {
+      if (video) {
+        video.muted = newMutedState;
+      }
+    });
+  };
+
+  const formatLikesCount = (count: number): string => {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+    return count.toString();
+  };
+
+  const formatDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
+    
+    if (diffInHours < 1) return 'Just now';
+    if (diffInHours < 24) return `${diffInHours}h ago`;
+    if (diffInHours < 168) return `${Math.floor(diffInHours / 24)}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   return (
-    <div className="bg-black h-[100dvh] w-full text-white relative overflow-hidden">
-      <SEO title="Trending Videos - Roza News" description="Watch viral news, tech, and sports videos." />
-      
-      <AuthModal 
-        isOpen={isAuthModalOpen} 
-        onClose={() => setIsAuthModalOpen(false)} 
-        onLoginSuccess={handleLoginSuccess} 
+    <div className="min-h-screen bg-black text-white" ref={containerRef}>
+      <SEO 
+        title="Roza Videos" 
+        description="Watch trending news videos and short documentaries"
+        keywords="news videos, documentaries, trending, current affairs"
       />
-
-      {/* --- TOP NAV BAR (FULL SCREEN OVERLAY) --- */}
-      <div className="absolute top-0 left-0 right-0 z-40 p-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
-         {/* Back Button */}
-         <button onClick={() => navigate(-1)} className="pointer-events-auto p-2 md:p-3 bg-black/30 backdrop-blur-md rounded-full hover:bg-black/50 transition-all text-white">
-            <ArrowLeft size={20} />
-         </button>
-
-         {/* Search Bar */}
-         <div className="pointer-events-auto flex-1 max-w-xs mx-4">
-           <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-full flex items-center p-2 w-full transition-all focus-within:bg-black/60 focus-within:border-primary">
-              <Search size={16} className="text-gray-300 ml-2" />
-              <input 
-                 type="text" 
-                 placeholder="Search clips..." 
-                 className="bg-transparent border-none outline-none text-white text-sm px-3 w-full placeholder-gray-400"
-                 value={searchQuery}
-                 onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && <button onClick={() => setSearchQuery('')}><X size={16} className="text-gray-300 mr-2"/></button>}
-           </div>
-         </div>
-         
-         {/* Mute Toggle */}
-         <button onClick={toggleMute} className="pointer-events-auto w-10 h-10 flex items-center justify-center bg-black/30 backdrop-blur-md rounded-full hover:bg-black/50 transition-all text-white">
-            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-         </button>
-      </div>
-
-      {/* --- VIDEO FEED CONTAINER --- */}
-      <div ref={containerRef} className="h-full w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide">
-        
-        {displayVideos.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-             <Play size={48} className="mb-4 opacity-50"/>
-             <p>No videos found.</p>
-          </div>
-        )}
-
-        {displayVideos.map((video) => {
-           const isLiked = currentUser ? video.likedBy.includes(currentUser.id) : false;
-           
-           return (
-             <div 
-               key={video.id} 
-               id={`video-container-${video.id}`} // Used for scrolling
-               data-id={video.id}
-               className="tiktok-video-container snap-center relative w-full h-full bg-gray-900 overflow-hidden flex items-center justify-center"
-               onClick={() => togglePlay(video.id)}
-             >
-                {/* VIDEO PLAYER */}
-                <video 
-                   ref={(el) => { if(el) videoRefs.current[video.id] = el; }}
-                   src={video.url} 
-                   className="w-full h-full object-cover cursor-pointer"
-                   loop
-                   playsInline
-                   muted={isMuted}
-                   poster={video.thumbnailUrl}
-                />
-
-                {/* OVERLAY: PLAY ICON (If paused) */}
-                {videoRefs.current[video.id]?.paused && (
-                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/10">
-                      <Play size={64} className="text-white/50 animate-pulse" fill="currentColor"/>
-                   </div>
-                )}
-
-                {/* OVERLAY: BOTTOM INFO */}
-                <div className="absolute bottom-0 left-0 right-0 p-4 pb-20 md:pb-8 bg-gradient-to-t from-black/90 via-black/40 to-transparent pt-24 pointer-events-none">
-                   <div className="flex items-end justify-between pointer-events-auto">
-                      <div className="flex-1 pr-16 md:pr-24 max-w-3xl">
-                         {/* CLICKABLE ROZA NEWS PROFILE */}
-                         <div 
-                            className="flex items-center gap-2 mb-2 md:mb-3 cursor-pointer w-fit group"
-                            onClick={(e) => {
-                               e.stopPropagation();
-                               navigate('/');
-                            }}
-                         >
-                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center shadow-lg border border-white/20">
-                               <Logo className="w-5 h-5 md:w-6 md:h-6" />
-                            </div>
-                            <span className="font-bold text-sm md:text-base drop-shadow-md text-white group-hover:text-primary transition-colors">Roza News</span>
-                            <span className="bg-primary text-white text-[9px] px-1.5 py-0.5 rounded ml-1 font-bold uppercase tracking-wider">Official</span>
-                         </div>
-
-                         <h3 className="font-bold text-lg md:text-xl leading-tight mb-2 text-shadow text-white line-clamp-2">{video.title}</h3>
-                         <p className="text-xs md:text-sm text-gray-200 line-clamp-3 mb-3 leading-relaxed drop-shadow">{video.description}</p>
-                         <div className="flex items-center gap-2 text-[10px] md:text-xs text-gray-300 bg-black/30 w-fit px-3 py-1 rounded-full backdrop-blur-sm">
-                            <Music2 size={12} className="animate-spin-slow" />
-                            <span>Original Audio - Roza News</span>
-                         </div>
-                      </div>
-                   </div>
+      
+      {/* Top Navigation */}
+      <div className="sticky top-0 z-40 bg-black/90 backdrop-blur-lg border-b border-gray-800">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => navigate('/')}
+                className="p-2 hover:bg-gray-800 rounded-full transition-colors"
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <Logo size="sm" />
+              <h1 className="text-xl font-bold hidden md:block">Roza Videos</h1>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {/* Search Bar */}
+              <div className="relative max-w-md w-full">
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 text-gray-400" size={18} />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={handleSearch}
+                    placeholder="Search videos..."
+                    className="w-full pl-10 pr-10 py-2 bg-gray-900 border border-gray-700 rounded-full focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={clearSearch}
+                      className="absolute right-3 text-gray-400 hover:text-white"
+                    >
+                      <X size={18} />
+                    </button>
+                  )}
                 </div>
-
-                {/* OVERLAY: RIGHT SIDE ACTIONS */}
-                <div className="absolute right-2 md:right-4 bottom-20 md:bottom-24 flex flex-col gap-4 md:gap-6 items-center z-10 pointer-events-auto">
-                   {/* LIKE */}
-                   <button onClick={(e) => handleLike(e, video.id)} className="flex flex-col items-center gap-1 group">
-                      <div className={`p-3 md:p-3.5 rounded-full bg-black/40 backdrop-blur-md transition-transform active:scale-90 border border-white/10 ${isLiked ? 'text-red-500' : 'text-white'}`}>
-                         <Heart size={24} className="md:w-[30px] md:h-[30px]" fill={isLiked ? 'currentColor' : 'none'} />
-                      </div>
-                      <span className="text-[10px] md:text-xs font-bold drop-shadow-md">{video.likes}</span>
-                   </button>
-
-                   {/* COMMENT */}
-                   <button onClick={() => handleCommentClick(video.id)} className="flex flex-col items-center gap-1 group">
-                      <div className="p-3 md:p-3.5 rounded-full bg-black/40 backdrop-blur-md text-white active:scale-90 border border-white/10">
-                         <MessageCircle size={24} className="md:w-[30px] md:h-[30px]" />
-                      </div>
-                      <span className="text-[10px] md:text-xs font-bold drop-shadow-md">{video.comments.length}</span>
-                   </button>
-
-                   {/* SHARE */}
-                   <button onClick={(e) => handleShare(e, video)} className="flex flex-col items-center gap-1 group">
-                      <div className="p-3 md:p-3.5 rounded-full bg-black/40 backdrop-blur-md text-white active:scale-90 border border-white/10">
-                         <Share2 size={24} className="md:w-[30px] md:h-[30px]" />
-                      </div>
-                      <span className="text-[10px] md:text-xs font-bold drop-shadow-md">Share</span>
-                   </button>
-                   
-                   {/* Spinning Disc (Aesthetic) */}
-                   <div className="mt-2 md:mt-4 w-10 h-10 md:w-12 md:h-12 rounded-full border-4 border-gray-800 bg-gray-900 overflow-hidden animate-spin-slow">
-                      <img src="https://picsum.photos/50/50" className="w-full h-full object-cover opacity-80" alt="Disc" />
-                   </div>
-                </div>
-             </div>
-           );
-        })}
-      </div>
-
-      {/* --- COMMENTS DRAWER (MODAL) --- */}
-      {openCommentId && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setOpenCommentId(null)}>
-           <div 
-             className="bg-white dark:bg-gray-900 w-full max-w-lg h-[70vh] rounded-t-3xl flex flex-col shadow-2xl animate-slide-up"
-             onClick={(e) => e.stopPropagation()} 
-           >
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
-                 <div className="w-8"></div>
-                 <h3 className="font-bold text-gray-900 dark:text-white">
-                    {allVideos.find(v => v.id === openCommentId)?.comments.length} Comments
-                 </h3>
-                 <button onClick={() => setOpenCommentId(null)} className="p-2 bg-gray-100 dark:bg-gray-800 rounded-full">
-                    <X size={18} className="text-gray-600 dark:text-gray-300"/>
-                 </button>
               </div>
-
-              {/* Comments List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                 {allVideos.find(v => v.id === openCommentId)?.comments.length === 0 ? (
-                    <div className="text-center text-gray-400 py-10">Be the first to comment!</div>
-                 ) : (
-                    allVideos.find(v => v.id === openCommentId)?.comments.map(comment => (
-                       <div key={comment.id} className="flex gap-3 animate-fade-in">
-                          <img 
-                            src={comment.userAvatar || `https://ui-avatars.com/api/?name=${comment.username}&background=random`} 
-                            className="w-8 h-8 rounded-full flex-shrink-0"
-                            alt={comment.username} 
-                          />
-                          <div>
-                             <div className="flex items-baseline gap-2">
-                                <span className="font-bold text-sm text-gray-900 dark:text-white">{comment.username}</span>
-                                <span className="text-[10px] text-gray-400">{new Date(comment.createdAt).toLocaleDateString()}</span>
-                             </div>
-                             <p className="text-sm text-gray-700 dark:text-gray-300">{comment.text}</p>
-                          </div>
-                       </div>
-                    ))
-                 )}
-              </div>
-
-              {/* Input */}
+              
+              {/* Mute/Unmute Toggle */}
+              <button
+                onClick={toggleMuteAll}
+                className="p-2 hover:bg-gray-800 rounded-full transition-colors"
+                title={isMuted ? "Unmute all videos" : "Mute all videos"}
+              >
+                {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              </button>
+              
+              {/* Login/User Avatar */}
               {currentUser ? (
-                <form onSubmit={handleSubmitComment} className="p-4 border-t border-gray-100 dark:border-gray-800 flex gap-2 items-center bg-gray-50 dark:bg-black/20 pb-8 md:pb-4">
-                   <img src={currentUser.avatar} className="w-8 h-8 rounded-full" alt="Me" />
-                   <input 
-                      className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      placeholder="Add a comment..."
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                   />
-                   <button 
-                      type="submit" 
-                      disabled={!newComment.trim()}
-                      className="p-2 bg-primary text-white rounded-full disabled:opacity-50 hover:bg-red-700 transition-colors"
-                   >
-                      <Send size={18} />
-                   </button>
-                </form>
-              ) : (
-                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-black/20 text-center pb-8 md:pb-4">
-                   <button onClick={() => { setOpenCommentId(null); setIsAuthModalOpen(true); }} className="text-primary font-bold hover:underline flex items-center justify-center w-full">
-                      <LogIn size={16} className="mr-2"/> Log in to comment
-                   </button>
+                <div className="flex items-center gap-2">
+                  <img
+                    src={currentUser.avatar || '/default-avatar.png'}
+                    alt={currentUser.name}
+                    className="w-8 h-8 rounded-full border-2 border-blue-500"
+                  />
+                  <span className="hidden md:inline text-sm">{currentUser.name}</span>
                 </div>
+              ) : (
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-full text-sm font-medium transition-colors"
+                >
+                  <LogIn size={16} />
+                  <span className="hidden md:inline">Login</span>
+                </button>
               )}
-           </div>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
 
+      {/* Main Content */}
+      <div className="container mx-auto px-4 py-6">
+        {/* Videos Grid */}
+        <div className="space-y-6 max-w-2xl mx-auto">
+          {displayVideos.length === 0 ? (
+            <div className="text-center py-20">
+              <Music2 size={48} className="mx-auto text-gray-600 mb-4" />
+              <h3 className="text-xl font-bold mb-2">No videos found</h3>
+              <p className="text-gray-400">
+                {searchQuery ? 'Try a different search term' : 'No videos uploaded yet'}
+              </p>
+            </div>
+          ) : (
+            displayVideos.map(video => (
+              <div
+                key={video.id}
+                id={`video-container-${video.id}`}
+                data-video-id={video.id}
+                className="bg-gray-900 rounded-2xl overflow-hidden border border-gray-800"
+              >
+                {/* Video Container */}
+                <div className="relative aspect-[9/16] md:aspect-[16/9] bg-black">
+                  <video
+                    ref={el => videoRefs.current[video.id] = el}
+                    src={video.videoUrl}
+                    poster={video.thumbnailUrl}
+                    className="w-full h-full object-contain"
+                    muted={isMuted}
+                    loop
+                    playsInline
+                    onClick={(e) => {
+                      const vid = e.currentTarget;
+                      if (vid.paused) {
+                        vid.play();
+                        handleVideoPlay(video.id);
+                      } else {
+                        vid.pause();
+                        handleVideoPause(video.id);
+                      }
+                    }}
+                    onPlay={() => handleVideoPlay(video.id)}
+                    onPause={() => handleVideoPause(video.id)}
+                  />
+                  
+                  {/* Play Overlay */}
+                  {activeVideoId !== video.id && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                      <button 
+                        className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
+                        onClick={() => {
+                          const vid = videoRefs.current[video.id];
+                          if (vid) {
+                            vid.play();
+                            handleVideoPlay(video.id);
+                          }
+                        }}
+                      >
+                        <Play size={32} fill="white" />
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Video Info Overlay */}
+                  <div className="absolute bottom-4 left-4 right-4 text-white">
+                    <h3 className="text-lg font-bold mb-1 line-clamp-2">{video.title}</h3>
+                    <p className="text-sm text-gray-300 line-clamp-2">{video.description}</p>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-xs text-gray-400">
+                        {formatDate(video.createdAt || video.publishedAt || new Date().toISOString())}
+                      </span>
+                      <span className="text-xs text-gray-400">{video.duration || '--:--'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions Bar */}
+                <div className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-6">
+                      {/* Like Button */}
+                      <button
+                        onClick={() => handleToggleLike(video.id)}
+                        className="flex flex-col items-center group"
+                      >
+                        <div className={`p-2 rounded-full transition-colors ${
+                          currentUser && video.likedBy?.includes(currentUser.id)
+                            ? 'bg-red-500/20'
+                            : 'hover:bg-gray-800'
+                        }`}>
+                          <Heart
+                            size={24}
+                            className={`transition-colors ${
+                              currentUser && video.likedBy?.includes(currentUser.id)
+                                ? 'fill-red-500 text-red-500'
+                                : 'text-gray-400 group-hover:text-red-400'
+                            }`}
+                          />
+                        </div>
+                        <span className="text-xs mt-1 text-gray-400">
+                          {formatLikesCount(video.likes || 0)}
+                        </span>
+                      </button>
+
+                      {/* Comment Button */}
+                      <button
+                        onClick={() => setOpenCommentId(openCommentId === video.id ? null : video.id)}
+                        className="flex flex-col items-center group"
+                      >
+                        <div className={`p-2 rounded-full transition-colors ${
+                          openCommentId === video.id
+                            ? 'bg-blue-500/20'
+                            : 'hover:bg-gray-800'
+                        }`}>
+                          <MessageCircle
+                            size={24}
+                            className={`transition-colors ${
+                              openCommentId === video.id
+                                ? 'text-blue-500'
+                                : 'text-gray-400 group-hover:text-blue-400'
+                            }`}
+                          />
+                        </div>
+                        <span className="text-xs mt-1 text-gray-400">
+                          {video.comments?.length || 0}
+                        </span>
+                      </button>
+
+                      {/* Share Button */}
+                      <button
+                        onClick={() => handleShareVideo(video)}
+                        className="flex flex-col items-center group"
+                      >
+                        <div className="p-2 rounded-full hover:bg-gray-800 transition-colors">
+                          <Share2
+                            size={24}
+                            className="text-gray-400 group-hover:text-green-400 transition-colors"
+                          />
+                        </div>
+                        <span className="text-xs mt-1 text-gray-400">Share</span>
+                      </button>
+                    </div>
+
+                    {/* Tags */}
+                    <div className="hidden md:flex items-center gap-2">
+                      {video.tags?.slice(0, 3).map(tag => (
+                        <span
+                          key={tag}
+                          className="px-2 py-1 bg-gray-800 rounded-full text-xs text-gray-300"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Comments Section */}
+                  {openCommentId === video.id && (
+                    <div className="mt-4 pt-4 border-t border-gray-800">
+                      <div className="mb-4">
+                        <h4 className="font-bold mb-2">Comments ({video.comments?.length || 0})</h4>
+                        <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                          {video.comments && video.comments.length > 0 ? (
+                            video.comments.map(comment => (
+                              <div key={comment.id} className="flex gap-3">
+                                <img
+                                  src={comment.userAvatar || '/default-avatar.png'}
+                                  alt={comment.username}
+                                  className="w-8 h-8 rounded-full"
+                                />
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">{comment.username}</span>
+                                    <span className="text-xs text-gray-400">
+                                      {formatDate(comment.createdAt)}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm mt-1">{comment.text}</p>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-gray-400 text-center py-4">No comments yet. Be the first!</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Add Comment Form */}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          placeholder="Add a comment..."
+                          className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-full focus:outline-none focus:border-blue-500 text-sm"
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleAddComment(video.id);
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => handleAddComment(video.id)}
+                          disabled={!newComment.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-full text-sm font-medium transition-colors flex items-center gap-2"
+                        >
+                          <Send size={16} />
+                          <span>Post</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
     </div>
   );
 };
