@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { WeatherService } from '../services/weatherService';
 import { GeminiService } from '../services/geminiService';
-import { WeatherData } from '../types';
+import { WeatherData, HourlyForecast, DailyForecast } from '../types';
 import { 
   CloudRain, Wind, Droplets, MapPin, Search, 
   Sun, Cloud, Moon, CloudLightning, Snowflake, 
-  Navigation, Sunrise, Sunset, Umbrella, Loader2, Sparkles, Zap
+  Navigation, Sunrise, Sunset, Umbrella, Loader2, Sparkles, Zap,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import SEO from '../components/SEO';
 
@@ -16,6 +18,8 @@ const Weather: React.FC = () => {
   const [error, setError] = useState('');
   const [aiSummary, setAiSummary] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{name: string, country: string, lat: number, lon: number}>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Initial Load: Try GPS, else Default to London
   useEffect(() => {
@@ -29,12 +33,10 @@ const Weather: React.FC = () => {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           try {
-            const res = await WeatherService.getWeatherByCoords(
-              position.coords.latitude, 
-              position.coords.longitude
-            );
+            const res = await WeatherService.getCurrentLocationWeather();
             handleWeatherData(res);
-          } catch (e) {
+          } catch (e: any) {
+            setError(e.message || 'Failed to get location weather');
             fetchWeather('London');
           }
         },
@@ -54,7 +56,9 @@ const Weather: React.FC = () => {
     try {
       const res = await WeatherService.getWeather(targetCity);
       handleWeatherData(res);
-      setCity(''); 
+      setCity('');
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
     } catch (err: any) {
       setError(err.message || 'Location not found. Please try a major city name.');
       setData(null);
@@ -80,7 +84,32 @@ const Weather: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (city.trim()) fetchWeather(city);
+    if (city.trim()) {
+      fetchWeather(city);
+    }
+  };
+
+  const handleSearchInputChange = async (value: string) => {
+    setCity(value);
+    
+    if (value.trim().length >= 2) {
+      try {
+        const suggestions = await WeatherService.searchLocations(value);
+        setSearchSuggestions(suggestions);
+        setShowSuggestions(true);
+      } catch (error) {
+        setSearchSuggestions([]);
+      }
+    } else {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const selectSuggestion = (suggestion: {name: string, country: string, lat: number, lon: number}) => {
+    setCity(`${suggestion.name}, ${suggestion.country}`);
+    setShowSuggestions(false);
+    fetchWeather(suggestion.name);
   };
 
   const getWeatherIcon = (code: number, isDay: boolean, size = 24, className = "") => {
@@ -95,13 +124,23 @@ const Weather: React.FC = () => {
   };
 
   const getBackgroundClass = () => {
-    if (!data) return 'bg-gradient-to-br from-blue-900 via-slate-800 to-black'; 
-    if (!data.isDay) return 'bg-gradient-to-b from-slate-900 via-indigo-950 to-black'; 
+    if (!data) return 'bg-gradient-to-br from-blue-900 via-slate-800 to-black';
+    if (!data.isDay) return 'bg-gradient-to-b from-slate-900 via-indigo-950 to-black';
     const code = data.weatherCode;
     if (code === 0) return 'bg-gradient-to-br from-blue-400 via-blue-500 to-blue-700'; // Sunny
     if (code >= 1 && code <= 3) return 'bg-gradient-to-br from-slate-400 via-slate-500 to-slate-700'; // Cloudy
     if (code >= 51) return 'bg-gradient-to-br from-gray-700 via-slate-800 to-slate-900'; // Rain
     return 'bg-gradient-to-br from-blue-500 via-blue-700 to-blue-900';
+  };
+
+  const formatTime = (timeString: string) => {
+    if (!timeString) return '--:--';
+    try {
+      const time = new Date(timeString);
+      return time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return timeString;
+    }
   };
 
   return (
@@ -118,7 +157,7 @@ const Weather: React.FC = () => {
            <p className="text-blue-200 mt-2">AI-Powered Global Forecasts</p>
         </div>
 
-        {/* Google-Style Search Bar */}
+        {/* Google-Style Search Bar with Suggestions */}
         <div className="max-w-xl mx-auto relative group z-20">
            <div className="absolute inset-0 bg-white/20 blur-xl rounded-full group-hover:bg-white/30 transition-all"></div>
            <form onSubmit={handleSearch} className="relative flex items-center bg-white/10 backdrop-blur-xl border border-white/20 rounded-full px-2 py-2 shadow-2xl transition-all focus-within:bg-white/20 focus-within:scale-105">
@@ -126,19 +165,42 @@ const Weather: React.FC = () => {
              <input 
                type="text" 
                value={city}
-               onChange={(e) => setCity(e.target.value)}
+               onChange={(e) => handleSearchInputChange(e.target.value)}
                placeholder="Search City (e.g. London, Dubai)..."
                className="w-full bg-transparent border-none outline-none text-white placeholder-white/60 px-4 py-2 font-medium text-base md:text-lg"
+               onFocus={() => setShowSuggestions(true)}
+               onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
              />
              <button 
                type="button" 
                onClick={handleUseLocation}
                title="Use Current Location"
-               className="p-2.5 bg-blue-500 hover:bg-blue-400 text-white rounded-full transition-colors shadow-lg"
+               className="p-2.5 bg-blue-500 hover:bg-blue-400 text-white rounded-full transition-colors shadow-lg mx-2"
              >
                <Navigation size={18} fill="currentColor" />
              </button>
            </form>
+
+           {/* Search Suggestions Dropdown */}
+           {showSuggestions && searchSuggestions.length > 0 && (
+             <div className="absolute top-full mt-2 w-full bg-black/90 backdrop-blur-lg border border-white/20 rounded-2xl shadow-2xl z-50 max-h-60 overflow-y-auto">
+               {searchSuggestions.map((suggestion, index) => (
+                 <div
+                   key={`${suggestion.name}-${suggestion.country}-${index}`}
+                   className="p-3 hover:bg-white/10 cursor-pointer transition-colors border-b border-white/10 last:border-b-0"
+                   onClick={() => selectSuggestion(suggestion)}
+                 >
+                   <div className="flex items-center justify-between">
+                     <div>
+                       <div className="font-medium text-white">{suggestion.name}</div>
+                       <div className="text-sm text-white/60">{suggestion.country}</div>
+                     </div>
+                     <MapPin size={16} className="text-blue-400" />
+                   </div>
+                 </div>
+               ))}
+             </div>
+           )}
         </div>
 
         {/* Loading State */}
@@ -153,6 +215,13 @@ const Weather: React.FC = () => {
         {error && !loading && (
            <div className="bg-red-500/20 backdrop-blur border border-red-500/50 p-6 rounded-2xl text-white text-center max-w-lg mx-auto">
               <p className="font-bold">{error}</p>
+              <button
+                onClick={handleUseLocation}
+                className="mt-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors flex items-center gap-2 mx-auto"
+              >
+                <Navigation size={16} />
+                Try Current Location
+              </button>
            </div>
         )}
 
@@ -175,11 +244,14 @@ const Weather: React.FC = () => {
                       <h2 className="text-7xl md:text-9xl font-black tracking-tighter drop-shadow-lg">
                         {data.temp}°
                       </h2>
-                      <p className="text-2xl md:text-3xl font-medium opacity-90">{data.condition}</p>
+                      <p className="text-2xl md:text-3xl font-medium opacity-90 flex items-center gap-2">
+                        {getWeatherIcon(data.weatherCode, data.isDay, 32)}
+                        {data.condition}
+                      </p>
                       
                       <div className="flex gap-4 mt-4 justify-center md:justify-start text-white/70 font-medium">
-                         <span>H: {data.forecast[0].max}°</span>
-                         <span>L: {data.forecast[0].min}°</span>
+                         <span>H: {data.forecast[0]?.max || 0}°</span>
+                         <span>L: {data.forecast[0]?.min || 0}°</span>
                          <span>Feels Like: {data.feelsLike}°</span>
                       </div>
                    </div>
@@ -227,12 +299,12 @@ const Weather: React.FC = () => {
                       <div className="flex justify-center gap-4">
                          <div>
                             <Sunrise size={16} className="mb-1 mx-auto text-yellow-300"/>
-                            <span className="text-sm font-bold">{data.sunrise}</span>
+                            <span className="text-sm font-bold">{formatTime(data.sunrise)}</span>
                          </div>
                          <div className="w-px bg-white/20 h-full"></div>
                          <div>
                             <Sunset size={16} className="mb-1 mx-auto text-orange-400"/>
-                            <span className="text-sm font-bold">{data.sunset}</span>
+                            <span className="text-sm font-bold">{formatTime(data.sunset)}</span>
                          </div>
                       </div>
                    </div>
@@ -245,14 +317,14 @@ const Weather: React.FC = () => {
                 {/* Hourly */}
                 <div className="lg:col-span-2 bg-black/40 backdrop-blur-md rounded-[2rem] p-6 md:p-8 border border-white/10">
                    <h3 className="text-sm font-bold uppercase tracking-widest text-white/50 mb-6 flex items-center">
-                     <ClockIcon /> Hourly Forecast
+                     <Clock className="w-4 h-4 mr-2" /> Hourly Forecast
                    </h3>
                    <div className="flex overflow-x-auto gap-8 pb-4 scrollbar-hide">
-                      {data.hourly.map((hour, i) => (
+                      {data.hourly.slice(0, 12).map((hour, i) => (
                          <div key={i} className="flex flex-col items-center min-w-[60px] group">
                             <span className="text-sm text-white/60 mb-3">{hour.time}</span>
                             <div className="mb-3 transform group-hover:scale-110 transition-transform">
-                               {getWeatherIcon(hour.iconCode, hour.isDay, 28)}
+                               {getWeatherIcon(hour.weatherCode || 0, hour.isDay, 28)}
                             </div>
                             <span className="text-xl font-bold">{hour.temp}°</span>
                          </div>
@@ -263,14 +335,14 @@ const Weather: React.FC = () => {
                 {/* Daily */}
                 <div className="bg-black/40 backdrop-blur-md rounded-[2rem] p-6 md:p-8 border border-white/10">
                    <h3 className="text-sm font-bold uppercase tracking-widest text-white/50 mb-6 flex items-center">
-                      <CalendarIcon /> 7-Day Forecast
+                      <Calendar className="w-4 h-4 mr-2" /> 7-Day Forecast
                    </h3>
                    <div className="space-y-4">
                       {data.forecast.map((day, i) => (
                          <div key={i} className="flex items-center justify-between hover:bg-white/5 p-2 rounded-xl transition-colors">
-                            <span className="w-16 font-medium text-white/90">{i === 0 ? 'Today' : day.day.slice(0, 3)}</span>
+                            <span className="w-16 font-medium text-white/90">{i === 0 ? 'Today' : day.day}</span>
                             <div className="flex-1 flex justify-center">
-                               {getWeatherIcon(day.iconCode, true, 20)}
+                               {getWeatherIcon(day.weatherCode || 0, true, 20)}
                             </div>
                             <div className="flex gap-4 w-24 justify-end">
                                <span className="text-white/50">{day.min}°</span>
@@ -282,19 +354,56 @@ const Weather: React.FC = () => {
                 </div>
              </div>
 
+             {/* Last Updated */}
+             {data.lastUpdated && (
+               <div className="text-center text-white/50 text-sm mt-4">
+                 Last updated: {new Date(data.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+               </div>
+             )}
+          </div>
+        )}
+
+        {/* Weather Tips */}
+        {data && !loading && (
+          <div className="bg-black/30 backdrop-blur-sm border border-white/10 rounded-2xl p-6 mt-8">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Sparkles size={20} /> Weather Tips
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white/5 p-4 rounded-xl">
+                <div className="font-bold text-blue-300 mb-2">UV Index {data.uvIndex}</div>
+                <p className="text-sm text-white/80">
+                  {data.uvIndex <= 2 ? 'Low - No protection needed' :
+                   data.uvIndex <= 5 ? 'Moderate - Wear sunscreen' :
+                   data.uvIndex <= 7 ? 'High - Seek shade midday' :
+                   data.uvIndex <= 10 ? 'Very High - Avoid sun' :
+                   'Extreme - Stay indoors'}
+                </p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-xl">
+                <div className="font-bold text-blue-300 mb-2">Wind Advice</div>
+                <p className="text-sm text-white/80">
+                  {data.windSpeed < 20 ? 'Light breeze - Perfect for outdoor activities' :
+                   data.windSpeed < 40 ? 'Moderate wind - Be cautious with umbrellas' :
+                   'Strong wind - Secure outdoor objects'}
+                </p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-xl">
+                <div className="font-bold text-blue-300 mb-2">Temperature</div>
+                <p className="text-sm text-white/80">
+                  {data.temp < 0 ? 'Freezing - Bundle up!' :
+                   data.temp < 10 ? 'Cold - Wear a jacket' :
+                   data.temp < 20 ? 'Cool - Light layers' :
+                   data.temp < 30 ? 'Warm - Comfortable' :
+                   'Hot - Stay hydrated'}
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 };
-
-const ClockIcon = () => (
-  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-);
-
-const CalendarIcon = () => (
-  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-);
 
 export default Weather;
