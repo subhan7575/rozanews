@@ -1,250 +1,384 @@
-
-import { initializeApp, FirebaseApp } from "firebase/app";
+// Firebase configuration with fallbacks
+import { initializeApp, type FirebaseApp } from "firebase/app";
 import { 
   getAuth, 
-  Auth, 
   GoogleAuthProvider, 
   signInWithPopup, 
   createUserWithEmailAndPassword, 
+  updateProfile, 
   signInWithEmailAndPassword, 
   RecaptchaVerifier, 
   signInWithPhoneNumber, 
-  signOut, 
-  updateProfile,
-  User 
-} from "firebase/auth";
-import { UserProfile } from "../types";
-import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from "../constants";
+  signOut,
+  type User,
+  type Auth
+} from "firebase/auth"; 
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc,
+  type Firestore 
+} from "firebase/firestore";
+import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL,
+  type FirebaseStorage 
+} from "firebase/storage";
+
+import type { UserProfile } from "../types";
 import { StorageService } from "./storageService";
 
-// ------------------------------------------------------------------
-// FIREBASE WEB CONFIGURATION
-// ------------------------------------------------------------------
-
+// Fallback Firebase config (public - safe to expose)
 const firebaseConfig = {
   apiKey: "AIzaSyALgvrih8jpu7qrJ1VVhsJFcv_ehLdKTtI",
   authDomain: "roza-news.firebaseapp.com",
   projectId: "roza-news",
+  storageBucket: "roza-news.appspot.com",
   messagingSenderId: "139138582160",
   appId: "1:139138582160:web:429592856867f42aacba15",
   measurementId: "G-WR3KVDQN96"
 };
 
-// Known Admin Emails for Auto-Role Assignment
-const ADMIN_EMAILS = ['rozanewsofficial@gmail.com', 'saifujafar895@gmail.com'];
-
-// Initialize variables
-let app: FirebaseApp;
+// Firebase instances with null checks
+let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
+let db: Firestore | null = null;
+let storage: FirebaseStorage | null = null;
 
-try {
-  // 1. Initialize App
-  app = initializeApp(firebaseConfig);
-  
-  // 2. Initialize Auth
+// Safe initialization
+export const initializeFirebase = (): boolean => {
   try {
-    auth = getAuth(app);
-  } catch (authError) {
-    console.error("Firebase Auth failed to initialize. Check import maps.", authError);
+    if (!app) {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+      storage = getStorage(app);
+      console.log("✅ Firebase initialized successfully");
+    }
+    return true;
+  } catch (error) {
+    console.warn("⚠️ Firebase initialization failed, using fallback mode:", error);
+    return false;
   }
-} catch (error) {
-  console.error("Critical Firebase Initialization Error:", error);
-}
+};
+
+// Initialize immediately
+initializeFirebase();
+
+// Safe getters
+const getAuthSafe = (): Auth => {
+  if (!auth) initializeFirebase();
+  if (!auth) throw new Error("Firebase Auth not available");
+  return auth;
+};
+
+const getFirestoreSafe = (): Firestore | null => {
+  if (!db) initializeFirebase();
+  return db;
+};
+
+const getStorageSafe = (): FirebaseStorage | null => {
+  if (!storage) initializeFirebase();
+  return storage;
+};
 
 const googleProvider = new GoogleAuthProvider();
 
-export const AuthService = {
-  getAuthInstance: () => auth,
+// Default avatar generator
+const DEFAULT_USER_AVATAR = (name: string) => 
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=E11D48&color=fff&bold=true&size=256`;
 
-  // --- GOOGLE AUTH ---
-  signInWithGoogle: async (): Promise<UserProfile | null> => {
-    if (!auth) throw new Error("Authentication service is currently unavailable. Refresh the page.");
+// Admin emails
+const ADMIN_EMAILS = ['rozanewsofficial@gmail.com', 'saifujafar895@gmail.com'];
+
+export const AuthService = {
+  // Check if Firebase is available
+  isAvailable: () => !!auth,
+
+  // Get instances
+  getAuthInstance: () => auth,
+  getFirestoreInstance: () => db,
+  getStorageInstance: () => storage,
+
+  // Google Sign In
+  signInWithGoogle: async (): Promise<UserProfile> => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      return AuthService.mapFirebaseUserToProfile(result.user);
+      const authInstance = getAuthSafe();
+      const result = await signInWithPopup(authInstance, googleProvider);
+      const userProfile = AuthService.mapFirebaseUserToProfile(result.user);
+      
+      // Save locally
+      StorageService.externalLogin(userProfile);
+      
+      // Try to save to Firestore (optional)
+      try {
+        await AuthService.saveUserToFirestore(userProfile);
+      } catch (firestoreError) {
+        console.warn("Firestore save failed, using local storage:", firestoreError);
+      }
+      
+      return userProfile;
     } catch (error: any) {
       console.error("Google Sign In Error:", error);
-      throw error;
+      
+      // User-friendly error messages
+      if (error.code === 'auth/popup-closed-by-user') {
+        throw new Error("Sign-in cancelled by user");
+      }
+      if (error.code === 'auth/network-request-failed') {
+        throw new Error("Network error. Please check your internet connection");
+      }
+      
+      throw new Error(error.message || "Google sign-in failed");
     }
   },
 
-  // --- EMAIL/PASSWORD REGISTER ---
-  registerWithEmail: async (name: string, email: string, pass: string): Promise<UserProfile | null> => {
-    if (!auth) throw new Error("Auth service unavailable.");
+  // Email Registration
+  registerWithEmail: async (name: string, email: string, password: string): Promise<UserProfile> => {
     try {
-      // 1. Create User
-      const result = await createUserWithEmailAndPassword(auth, email, pass);
+      const authInstance = getAuthSafe();
       
-      // 2. Update Profile with Name
+      // Basic validation
+      if (!name.trim()) throw new Error("Name is required");
+      if (!email.trim()) throw new Error("Email is required");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters");
+      
+      const result = await createUserWithEmailAndPassword(authInstance, email, password);
+      
+      // Update profile
       if (result.user) {
         await updateProfile(result.user, {
-          displayName: name,
-          photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
+          displayName: name.trim(),
+          photoURL: DEFAULT_USER_AVATAR(name)
         });
       }
       
-      // 3. Return formatted profile
-      return AuthService.mapFirebaseUserToProfile(result.user);
+      const userProfile = AuthService.mapFirebaseUserToProfile(result.user);
+      
+      // Save locally
+      StorageService.externalLogin(userProfile);
+      
+      // Try Firestore
+      try {
+        await AuthService.saveUserToFirestore(userProfile);
+      } catch (e) {
+        console.warn("Firestore save skipped:", e);
+      }
+      
+      return userProfile;
     } catch (error: any) {
       console.error("Registration Error:", error);
-      throw error;
+      
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          throw new Error("Email already registered. Please sign in.");
+        case 'auth/invalid-email':
+          throw new Error("Invalid email format.");
+        case 'auth/weak-password':
+          throw new Error("Password is too weak.");
+        default:
+          throw new Error(error.message || "Registration failed");
+      }
     }
   },
 
-  // --- EMAIL/PASSWORD LOGIN ---
-  loginWithEmail: async (email: string, pass: string): Promise<UserProfile | null> => {
-    if (!auth) throw new Error("Auth service unavailable.");
+  // Email Login
+  loginWithEmail: async (email: string, password: string): Promise<UserProfile> => {
     try {
-      const result = await signInWithEmailAndPassword(auth, email, pass);
-      return AuthService.mapFirebaseUserToProfile(result.user);
+      const authInstance = getAuthSafe();
+      const result = await signInWithEmailAndPassword(authInstance, email, password);
+      const userProfile = AuthService.mapFirebaseUserToProfile(result.user);
+      
+      // Save locally
+      StorageService.externalLogin(userProfile);
+      
+      return userProfile;
     } catch (error: any) {
       console.error("Login Error:", error);
-      throw error;
-    }
-  },
-
-  // --- PHONE AUTH HELPERS ---
-  clearRecaptcha: () => {
-    if ((window as any).recaptchaVerifier) {
-      try {
-        (window as any).recaptchaVerifier.clear();
-      } catch (e) {
-        console.warn("Recaptcha clear error", e);
+      
+      switch (error.code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+          throw new Error("Invalid email or password");
+        case 'auth/user-disabled':
+          throw new Error("Account disabled");
+        case 'auth/too-many-requests':
+          throw new Error("Too many attempts. Try again later");
+        default:
+          throw new Error(error.message || "Login failed");
       }
-      (window as any).recaptchaVerifier = null;
     }
-    const container = document.getElementById('recaptcha-container');
-    if (container) container.innerHTML = '';
   },
 
-  setupRecaptcha: (elementId: string) => {
-    if (!auth) return null;
-    
-    // Clear existing to avoid "already rendered" error
-    AuthService.clearRecaptcha();
-
+  // Phone Authentication
+  setupRecaptcha: (elementId: string): RecaptchaVerifier | null => {
     try {
-      // Use modular RecaptchaVerifier
-      const verifier = new RecaptchaVerifier(auth, elementId, {
-        'size': 'invisible',
-        'callback': () => {
-           console.log("Recaptcha verified");
-        },
-        'expired-callback': () => {
-           console.warn("Recaptcha expired");
-           AuthService.clearRecaptcha();
-        }
+      const authInstance = getAuthSafe();
+      const container = document.getElementById(elementId);
+      if (!container) {
+        console.error(`Element #${elementId} not found`);
+        return null;
+      }
+      
+      // Clear existing
+      container.innerHTML = '';
+      
+      const verifier = new RecaptchaVerifier(authInstance, container, {
+        size: 'normal',
+        callback: () => console.log("reCAPTCHA solved"),
+        'expired-callback': () => console.log("reCAPTCHA expired")
       });
-      (window as any).recaptchaVerifier = verifier;
+      
       return verifier;
-    } catch (e) {
-      console.error("Recaptcha Setup Error:", e);
-      throw e;
+    } catch (error) {
+      console.error("reCAPTCHA setup failed:", error);
+      return null;
     }
   },
 
-  signInWithPhone: async (phoneNumber: string, appVerifier: any) => {
-    if (!auth) throw new Error("Auth service unavailable.");
-    return await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+  signInWithPhone: async (phoneNumber: string, verifier: RecaptchaVerifier): Promise<any> => {
+    try {
+      const authInstance = getAuthSafe();
+      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`;
+      return await signInWithPhoneNumber(authInstance, formattedPhone, verifier);
+    } catch (error: any) {
+      console.error("Phone auth error:", error);
+      throw new Error(error.message || "Phone authentication failed");
+    }
   },
 
-  logout: async () => {
-    if (auth) await signOut(auth);
+  // Logout
+  logout: async (): Promise<void> => {
+    try {
+      if (auth) {
+        await signOut(auth);
+      }
+      StorageService.logoutUser();
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Still clear local storage even if Firebase logout fails
+      StorageService.logoutUser();
+    }
   },
 
-  mapFirebaseUserToProfile: (firebaseUser: User | null): UserProfile => {
-    if (!firebaseUser) throw new Error("No user found");
-    const isPhone = !firebaseUser.email && firebaseUser.phoneNumber;
-    
-    // Create a consistent ID
+  // Map Firebase User to Profile
+  mapFirebaseUserToProfile: (firebaseUser: User): UserProfile => {
     const userId = firebaseUser.uid;
     const userEmail = firebaseUser.email || "";
-
-    // Determine Role based on predefined admin list
-    const role = ADMIN_EMAILS.includes(userEmail) ? 'admin' : 'user';
+    const isAdmin = ADMIN_EMAILS.includes(userEmail.toLowerCase().trim());
+    const role = isAdmin ? 'admin' : 'user';
+    
+    // Get avatar
+    let avatar = firebaseUser.photoURL || DEFAULT_USER_AVATAR(firebaseUser.displayName || "User");
+    
+    // Get display name
+    let displayName = firebaseUser.displayName?.trim() || "";
+    if (!displayName && firebaseUser.phoneNumber) {
+      displayName = `User ${firebaseUser.phoneNumber.slice(-4)}`;
+    }
+    if (!displayName && userEmail) {
+      displayName = userEmail.split('@')[0];
+    }
+    if (!displayName) {
+      displayName = "Roza User";
+    }
     
     return {
       id: userId,
-      name: firebaseUser.displayName || (isPhone ? "Mobile User" : "Anonymous"),
-      email: userEmail, 
+      name: displayName,
+      email: userEmail,
       phoneNumber: firebaseUser.phoneNumber || undefined,
-      avatar: firebaseUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(firebaseUser.displayName || firebaseUser.phoneNumber || 'User')}&background=random`,
+      avatar: avatar,
       joinedAt: firebaseUser.metadata.creationTime || new Date().toISOString(),
       role: role,
-      notificationsEnabled: false
+      notificationsEnabled: false,
+      isPremium: false
     };
+  },
+
+  // Firestore Operations (Optional - won't break app if fails)
+  saveUserToFirestore: async (userProfile: UserProfile): Promise<void> => {
+    const dbInstance = getFirestoreSafe();
+    if (!dbInstance) return;
+    
+    try {
+      const userRef = doc(dbInstance, 'users', userProfile.id);
+      await setDoc(userRef, {
+        ...userProfile,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      console.warn("Firestore save failed (non-critical):", error);
+    }
+  },
+
+  getUserFromFirestore: async (userId: string): Promise<UserProfile | null> => {
+    const dbInstance = getFirestoreSafe();
+    if (!dbInstance) return null;
+    
+    try {
+      const userRef = doc(dbInstance, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      return userSnap.exists() ? (userSnap.data() as UserProfile) : null;
+    } catch (error) {
+      console.warn("Firestore read failed:", error);
+      return null;
+    }
   }
 };
 
 export const MediaService = {
+  // Upload file with multiple fallbacks
   uploadFile: async (file: File, folder: string = 'uploads'): Promise<string> => {
-    const savedConfig = StorageService.getCloudinaryConfig();
-    const cloudName = savedConfig.cloudName || CLOUDINARY_CLOUD_NAME;
-    const preset = savedConfig.uploadPreset || CLOUDINARY_UPLOAD_PRESET;
-
-    // 1. Try Cloudinary First (Preferred for everything)
-    if (cloudName && cloudName !== "demo" && preset) {
-        try {
-          const formData = new FormData();
-          formData.append("file", file);
-          formData.append("upload_preset", preset);
-          formData.append("folder", folder);
-          const resourceType = file.type.startsWith('video/') ? 'video' : 'image';
-
-          const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
-            { method: "POST", body: formData }
-          );
-
-          if (!response.ok) throw new Error("Cloudinary Upload Failed");
-          const data = await response.json();
-          return data.secure_url;
-
-        } catch (error) {
-          console.error("Cloudinary Error:", error);
-          throw new Error("Cloudinary upload failed. Please check your internet connection.");
-        }
-    }
-
-    // 2. No Firebase Storage Fallback anymore. 
+    if (!file) throw new Error("No file provided");
     
-    // 3. Fallback for Images Only (Base64)
+    // Size limit: 10MB
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      throw new Error(`File too large. Max size: ${MAX_SIZE / (1024 * 1024)}MB`);
+    }
+    
+    // Try Firebase Storage first
+    const storageInstance = getStorageSafe();
+    if (storageInstance) {
+      try {
+        const storageRef = ref(storageInstance, `${folder}/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        return downloadURL;
+      } catch (firebaseError) {
+        console.warn("Firebase storage upload failed:", firebaseError);
+        // Continue to fallback
+      }
+    }
+    
+    // Fallback: Convert image to data URL
+    if (file.type.startsWith('image/')) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+    }
+    
+    // Fallback for videos and other files
     if (file.type.startsWith('video/')) {
-        throw new Error("Video upload requires Cloudinary. Please configure Cloudinary in Admin Panel > Cloud Sync.");
+      return URL.createObjectURL(file);
     }
     
-    console.warn("Cloudinary not configured. Saving image as Base64 (Local only).");
-    return MediaService.compressImage(file);
+    // Generic fallback
+    throw new Error("File upload not supported in offline mode");
   },
 
-  compressImage: (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          if (!ctx) { resolve(img.src); return; }
-          const MAX_WIDTH = 800; const MAX_HEIGHT = 800;
-          let width = img.width; let height = img.height;
-          if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } } 
-          else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
-          canvas.width = width; canvas.height = height;
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
-        };
-        img.onerror = (err) => reject(err);
-      };
-      reader.onerror = (err) => reject(err);
-    });
+  // Validate file type
+  validateFileType: (file: File, allowedTypes: string[]): boolean => {
+    return allowedTypes.some(type => file.type.startsWith(type));
   }
 };
 
-declare global {
-  interface Window {
-    recaptchaVerifier: any;
-  }
-}
+// Export for manual initialization
+export { initializeFirebase };
