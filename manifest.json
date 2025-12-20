@@ -1,0 +1,21 @@
+{
+  "short_name": "Roza News",
+  "name": "Roza News - Global Perspectives",
+  "icons": [
+    {
+      "src": "https://ui-avatars.com/api/?name=R+N&background=E11D48&color=fff&size=192&font-size=0.5",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://ui-avatars.com/api/?name=R+N&background=E11D48&color=fff&size=512&font-size=0.5",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#E11D48",
+  "background_color": "#020617",
+  "orientation": "portrait"
+}
