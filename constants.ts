@@ -2,7 +2,7 @@ import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, UserProfile, M
 
 // ROZA NEWS: ALL-DATA REPOSITORY (BACKUP)
 // DO NOT EDIT MANUALLY - AUTO-GENERATED VIA ADMIN PANEL
-export const DATA_TIMESTAMP = 1766331555867;
+export const DATA_TIMESTAMP = 1766331680623;
 
 export const CATEGORIES = ['World', 'Business', 'Sports', 'Technology', 'Health', 'Entertainment'];
 
@@ -73,11 +73,11 @@ export const INITIAL_JOBS: JobPosition[] = [
 
 export const INITIAL_USERS: UserProfile[] = [
   {
-    "id": "admin_1766331323036",
+    "id": "admin_1766331665547",
     "name": "Subhan Ahmad",
     "email": "saifujafar895@gmail.com",
     "avatar": "https://ui-avatars.com/api/?name=Admin&background=E11D48&color=fff",
-    "joinedAt": "2025-12-21T15:35:23.036Z",
+    "joinedAt": "2025-12-21T15:41:05.547Z",
     "role": "admin",
     "notificationsEnabled": false
   },
