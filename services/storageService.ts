@@ -1,8 +1,8 @@
 
-import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, Comment, UserProfile, NotificationPayload, Message, TickerConfig, CloudinaryConfig, JobPosition, JobApplication, GlobalSEOConfig, DirectMessage } from '../types';
-import { INITIAL_ARTICLES, INITIAL_ADS, INITIAL_PROJECT_FILES, DEFAULT_API_KEY, INITIAL_VIDEOS, DATA_TIMESTAMP, INITIAL_GITHUB_CONFIG, DEFAULT_GITHUB_TOKEN, INITIAL_USERS, INITIAL_MESSAGES, INITIAL_TICKER_CONFIG, INITIAL_JOBS, INITIAL_JOB_APPLICATIONS, INITIAL_SEO_CONFIG, ADMIN_EMAILS } from '../constants';
+import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, Comment, UserProfile, Message, TickerConfig, CloudinaryConfig, JobPosition, JobApplication, GlobalSEOConfig, DirectMessage } from '../types';
+import { INITIAL_ARTICLES, INITIAL_ADS, INITIAL_PROJECT_FILES, DEFAULT_API_KEY, INITIAL_VIDEOS, DATA_TIMESTAMP, INITIAL_GITHUB_CONFIG, INITIAL_TICKER_CONFIG, INITIAL_JOBS, INITIAL_JOB_APPLICATIONS, INITIAL_SEO_CONFIG, ADMIN_EMAILS } from '../constants';
 import { getFirebaseDb } from './firebase';
-import { doc, setDoc, getDoc, updateDoc, collection, getDocs, deleteDoc, query, where, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { doc, setDoc, collection, getDocs, deleteDoc, query, where, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData, updateDoc } from 'firebase/firestore';
 import { GithubService } from './githubService';
 
 const KEYS = {
@@ -41,11 +41,9 @@ export const StorageService = {
       localStorage.setItem(KEYS.SEO, JSON.stringify(INITIAL_SEO_CONFIG));
       localStorage.setItem(KEYS.TIMESTAMP, DATA_TIMESTAMP.toString());
     }
-    // Refresh local cache from Cloud silently on boot
     StorageService.pullFromCloud();
   },
 
-  // --- CLOUD PRIORITY FETCHING (YouTube Style) ---
   getArticlesPaginated: async (pageSize: number, atBeginning: boolean): Promise<Article[]> => {
     try {
       const db = getFirebaseDb();
@@ -62,12 +60,9 @@ export const StorageService = {
       lastArticleDoc = snap.docs[snap.docs.length - 1];
       const articles = snap.docs.map(d => d.data() as Article);
       
-      // Update local cache for offline mode
       if (atBeginning) localStorage.setItem(KEYS.ARTICLES, JSON.stringify(articles));
-      
       return articles;
     } catch (e) {
-      console.warn("Cloud fetch failed, using local cache", e);
       return StorageService.getArticles().slice(0, pageSize);
     }
   },
@@ -84,10 +79,8 @@ export const StorageService = {
     } catch (e) {}
   },
 
-  // --- AUTOMATED BACKGROUND SYNC ENGINE ---
-  // This triggers every time data is modified
   triggerSync: async () => {
-    if (isSyncing) return; // Prevent overlapping syncs
+    if (isSyncing) return;
     isSyncing = true;
 
     const config = StorageService.getGithubConfig();
@@ -96,21 +89,15 @@ export const StorageService = {
       return;
     }
 
-    // Notify UI that sync is starting in background
-    window.dispatchEvent(new CustomEvent('roza_sync_status', { 
-        detail: { state: 'syncing', time: 'Updating Cloud...' } 
-    }));
+    window.dispatchEvent(new CustomEvent('roza_sync_status', { detail: { state: 'syncing', time: 'Updating Cloud...' } }));
 
     try {
-      // 1. Push current state to Firestore for instant live updates
       const db = getFirebaseDb();
       const articles = StorageService.getArticles();
-      // Batch push (simplified for this logic)
-      for (const art of articles.slice(0, 10)) {
+      for (const art of articles.slice(0, 5)) {
          await setDoc(doc(db, "articles", art.id), art, { merge: true });
       }
 
-      // 2. Generate the full bundle for GitHub Backup
       const content = GithubService.generateFileContent(
         StorageService.getApiKey(),
         articles,
@@ -126,42 +113,29 @@ export const StorageService = {
         StorageService.getSEOConfig()
       );
 
-      // 3. Push to GitHub constants.ts
       const result = await GithubService.pushToGithub(config, content);
-      
       window.dispatchEvent(new CustomEvent('roza_sync_status', { 
-          detail: { 
-              state: result.success ? 'success' : 'error', 
-              time: new Date().toLocaleTimeString() 
-          } 
+          detail: { state: result.success ? 'success' : 'error', time: new Date().toLocaleTimeString() } 
       }));
     } catch (e) {
-      console.error("Sync Engine Error:", e);
-      window.dispatchEvent(new CustomEvent('roza_sync_status', { 
-          detail: { state: 'error', time: 'Retry Later' } 
-      }));
+      window.dispatchEvent(new CustomEvent('roza_sync_status', { detail: { state: 'error', time: 'Retry Later' } }));
     } finally {
       isSyncing = false;
     }
   },
 
-  // --- WRITERS (All call triggerSync automatically) ---
   saveArticle: async (article: Article) => {
     const articles = StorageService.getArticles();
     const index = articles.findIndex(a => a.id === article.id);
-    if (index >= 0) articles[index] = article;
-    else articles.unshift(article);
+    if (index >= 0) articles[index] = article; else articles.unshift(article);
     localStorage.setItem(KEYS.ARTICLES, JSON.stringify(articles));
-    
-    // Background execution
     StorageService.triggerSync();
   },
 
   saveVideo: (video: VideoPost) => {
     const videos = StorageService.getVideos();
     const index = videos.findIndex(v => v.id === video.id);
-    if (index >= 0) videos[index] = video;
-    else videos.unshift(video);
+    if (index >= 0) videos[index] = video; else videos.unshift(video);
     localStorage.setItem(KEYS.VIDEOS, JSON.stringify(videos));
     StorageService.triggerSync();
   },
@@ -176,7 +150,6 @@ export const StorageService = {
     StorageService.triggerSync();
   },
 
-  // --- STANDARD GETTERS ---
   getArticles: (): Article[] => JSON.parse(localStorage.getItem(KEYS.ARTICLES) || '[]'),
   getAds: (): AdConfig[] => JSON.parse(localStorage.getItem(KEYS.ADS) || '[]'),
   getVideos: (): VideoPost[] => JSON.parse(localStorage.getItem(KEYS.VIDEOS) || '[]'),
@@ -199,7 +172,6 @@ export const StorageService = {
   isAuthenticated: (): boolean => !!localStorage.getItem(KEYS.CURRENT_USER),
   isBookmarked: (id: string): boolean => StorageService.getBookmarkedIds().includes(id),
 
-  // --- HELPERS ---
   saveTickerConfig: (config: TickerConfig) => {
     localStorage.setItem(KEYS.TICKER, JSON.stringify(config));
     StorageService.triggerSync();
@@ -215,10 +187,7 @@ export const StorageService = {
     localStorage.setItem(KEYS.API_KEY, key);
   },
   saveMessage: async (msg: Message) => {
-    try {
-      const db = getFirebaseDb();
-      await setDoc(doc(db, "messages", msg.id), msg);
-    } catch (e) {}
+    try { const db = getFirebaseDb(); await setDoc(doc(db, "messages", msg.id), msg); } catch (e) {}
     const msgs = StorageService.getMessages();
     msgs.unshift(msg);
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify(msgs));
@@ -291,8 +260,7 @@ export const StorageService = {
   toggleBookmark: (id: string): boolean => {
     let ids = StorageService.getBookmarkedIds();
     const exists = ids.includes(id);
-    if (exists) ids = ids.filter(i => i !== id);
-    else ids.push(id);
+    if (exists) ids = ids.filter(i => i !== id); else ids.push(id);
     localStorage.setItem(KEYS.BOOKMARKS, JSON.stringify(ids));
     window.dispatchEvent(new Event('bookmarks_updated'));
     return !exists;
