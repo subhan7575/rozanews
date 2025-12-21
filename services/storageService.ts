@@ -1,6 +1,6 @@
 
 import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, Comment, UserProfile, Message, TickerConfig, CloudinaryConfig, JobPosition, JobApplication, GlobalSEOConfig, DirectMessage } from '../types';
-import { INITIAL_ARTICLES, INITIAL_ADS, INITIAL_PROJECT_FILES, DEFAULT_API_KEY, INITIAL_VIDEOS, DATA_TIMESTAMP, INITIAL_GITHUB_CONFIG, INITIAL_TICKER_CONFIG, INITIAL_JOBS, INITIAL_JOB_APPLICATIONS, INITIAL_SEO_CONFIG, ADMIN_EMAILS, DEFAULT_GITHUB_TOKEN } from '../constants';
+import { INITIAL_ARTICLES, INITIAL_ADS, INITIAL_PROJECT_FILES, DEFAULT_API_KEY, INITIAL_VIDEOS, DATA_TIMESTAMP, INITIAL_GITHUB_CONFIG, INITIAL_TICKER_CONFIG, INITIAL_JOBS, INITIAL_JOB_APPLICATIONS, INITIAL_SEO_CONFIG, ADMIN_EMAILS, DEFAULT_GITHUB_TOKEN, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from '../constants';
 import { getFirebaseDb } from './firebase';
 import { doc, setDoc, collection, getDocs, deleteDoc, query, where, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData, updateDoc } from 'firebase/firestore';
 import { GithubService } from './githubService';
@@ -24,34 +24,23 @@ const KEYS = {
   BOOKMARKS: 'roza_bookmarks'
 };
 
-// Token Protection Logic
-const decodeSafeToken = (token: string): string => {
-  if (!token) return '';
-  if (token.startsWith('ghp_')) return token;
-  try {
-    // Decode Base64 and reverse back
-    const decoded = atob(token);
-    return decoded.split('').reverse().join('');
-  } catch (e) {
-    return token;
-  }
-};
-
 let lastArticleDoc: QueryDocumentSnapshot<DocumentData> | null = null;
 let isSyncing = false;
 
 export const StorageService = {
   init: () => {
-    if (!localStorage.getItem(KEYS.TIMESTAMP)) {
+    const currentTs = localStorage.getItem(KEYS.TIMESTAMP);
+    if (!currentTs || parseInt(currentTs) < DATA_TIMESTAMP) {
       localStorage.setItem(KEYS.ARTICLES, JSON.stringify(INITIAL_ARTICLES));
       localStorage.setItem(KEYS.ADS, JSON.stringify(INITIAL_ADS));
       localStorage.setItem(KEYS.FILES, JSON.stringify(INITIAL_PROJECT_FILES));
       localStorage.setItem(KEYS.API_KEY, DEFAULT_API_KEY);
       localStorage.setItem(KEYS.VIDEOS, JSON.stringify(INITIAL_VIDEOS));
-      
-      // Store encoded version initially, logic decodes on retrieval
       localStorage.setItem(KEYS.GITHUB, JSON.stringify(INITIAL_GITHUB_CONFIG));
-      
+      localStorage.setItem(KEYS.CLOUDINARY, JSON.stringify({
+         cloudName: CLOUDINARY_CLOUD_NAME,
+         uploadPreset: CLOUDINARY_UPLOAD_PRESET
+      }));
       localStorage.setItem(KEYS.TICKER, JSON.stringify(INITIAL_TICKER_CONFIG));
       localStorage.setItem(KEYS.JOBS, JSON.stringify(INITIAL_JOBS));
       localStorage.setItem(KEYS.SEO, JSON.stringify(INITIAL_SEO_CONFIG));
@@ -62,31 +51,32 @@ export const StorageService = {
 
   getGithubConfig: (): GithubConfig => {
     const raw = localStorage.getItem(KEYS.GITHUB);
-    const config: GithubConfig = raw ? JSON.parse(raw) : { ...INITIAL_GITHUB_CONFIG };
-    // Ensure token is decoded for active use
-    config.token = decodeSafeToken(config.token);
-    return config;
+    return raw ? JSON.parse(raw) : { ...INITIAL_GITHUB_CONFIG };
+  },
+
+  getCloudinaryConfig: (): CloudinaryConfig => {
+    const raw = localStorage.getItem(KEYS.CLOUDINARY);
+    return raw ? JSON.parse(raw) : { cloudName: CLOUDINARY_CLOUD_NAME, uploadPreset: CLOUDINARY_UPLOAD_PRESET };
   },
 
   triggerSync: async () => {
     if (isSyncing) return;
+    const config = StorageService.getGithubConfig(); 
+    if (!config.token || !config.owner || !config.repo) return;
+
     isSyncing = true;
-
-    const config = StorageService.getGithubConfig(); // Already decodes token
-    if (!config.token || !config.owner || !config.repo) {
-      isSyncing = false;
-      return;
-    }
-
-    window.dispatchEvent(new CustomEvent('roza_sync_status', { detail: { state: 'syncing', time: 'Updating Cloud...' } }));
+    window.dispatchEvent(new CustomEvent('roza_sync_status', { detail: { state: 'syncing', time: 'Pushing to Cloud...' } }));
 
     try {
       const db = getFirebaseDb();
       const articles = StorageService.getArticles();
+      
+      // Update Live Firestore
       for (const art of articles.slice(0, 5)) {
          await setDoc(doc(db, "articles", art.id), art, { merge: true });
       }
 
+      // Prepare Encrypted content for GitHub Backup
       const content = GithubService.generateFileContent(
         StorageService.getApiKey(),
         articles,
@@ -107,24 +97,26 @@ export const StorageService = {
           detail: { state: result.success ? 'success' : 'error', time: new Date().toLocaleTimeString() } 
       }));
     } catch (e) {
-      window.dispatchEvent(new CustomEvent('roza_sync_status', { detail: { state: 'error', time: 'Retry Later' } }));
+      console.error("Sync error:", e);
+      window.dispatchEvent(new CustomEvent('roza_sync_status', { detail: { state: 'error', time: 'Terminal Error' } }));
     } finally {
       isSyncing = false;
     }
   },
 
   saveGithubConfig: (config: GithubConfig) => {
-    // If the user pasted a raw token, we store it raw. triggerSync handles it.
     localStorage.setItem(KEYS.GITHUB, JSON.stringify(config));
     StorageService.triggerSync();
   },
 
-  // Standard Getters & Setters
+  saveCloudinaryConfig: (config: CloudinaryConfig) => {
+    localStorage.setItem(KEYS.CLOUDINARY, JSON.stringify(config));
+  },
+
   getArticles: (): Article[] => JSON.parse(localStorage.getItem(KEYS.ARTICLES) || '[]'),
   getAds: (): AdConfig[] => JSON.parse(localStorage.getItem(KEYS.ADS) || '[]'),
   getVideos: (): VideoPost[] => JSON.parse(localStorage.getItem(KEYS.VIDEOS) || '[]'),
   getApiKey: (): string => localStorage.getItem(KEYS.API_KEY) || DEFAULT_API_KEY,
-  getCloudinaryConfig: (): CloudinaryConfig => JSON.parse(localStorage.getItem(KEYS.CLOUDINARY) || '{}'),
   getTickerConfig: (): TickerConfig => JSON.parse(localStorage.getItem(KEYS.TICKER) || JSON.stringify(INITIAL_TICKER_CONFIG)),
   getJobs: (): JobPosition[] => JSON.parse(localStorage.getItem(KEYS.JOBS) || '[]'),
   getJobApplications: (): JobApplication[] => JSON.parse(localStorage.getItem(KEYS.APPLICATIONS) || '[]'),
@@ -198,9 +190,6 @@ export const StorageService = {
   saveTickerConfig: (config: TickerConfig) => {
     localStorage.setItem(KEYS.TICKER, JSON.stringify(config));
     StorageService.triggerSync();
-  },
-  saveCloudinaryConfig: (config: CloudinaryConfig) => {
-    localStorage.setItem(KEYS.CLOUDINARY, JSON.stringify(config));
   },
   saveApiKey: (key: string) => {
     localStorage.setItem(KEYS.API_KEY, key);
