@@ -36,7 +36,7 @@ export const INITIAL_GITHUB_CONFIG: GithubConfig = {
 };
 
 export const CLOUDINARY_CLOUD_NAME = "dnpewauob";
-export const CLOUDINARY_UPLOAD_PRESET = "roza_preset";
+export const CLOUDINARY_UPLOAD_PRESET = "Roza News";
 
 export const INITIAL_TICKER_CONFIG: TickerConfig = {
   visible: true,
