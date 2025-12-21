@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, Search, Sun, Moon, CloudRain, Youtube, Facebook, Linkedin, Twitter, PlayCircle, Globe, ChevronRight, Zap, User, LogIn, CheckCircle, AlertTriangle, ArrowUp } from 'lucide-react';
+import { Menu, X, Search, Sun, Moon, CloudRain, Youtube, Facebook, Linkedin, Twitter, PlayCircle, Globe, ChevronRight, Zap, User, LogIn, CheckCircle, AlertTriangle, ArrowUp, Settings } from 'lucide-react';
 import { CATEGORIES, INITIAL_TICKER_CONFIG } from '../constants';
 import AdUnit from './AdUnit';
 import Logo from './Logo';
@@ -42,21 +42,7 @@ const Layout: React.FC<LayoutProps> = ({ children, toggleTheme, isDark }) => {
     };
     window.addEventListener('scroll', handleScroll);
     
-    const handleStorageEvent = (e: StorageEvent) => {
-       if (e.key === 'roza_latest_broadcast' && e.newValue) {
-          try {
-            const payload: NotificationPayload = JSON.parse(e.newValue);
-            const freshUser = StorageService.getCurrentUser();
-            if (freshUser && freshUser.notificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
-               new Notification(payload.title, { body: payload.body, icon: '/logo.png' });
-            }
-          } catch (err) {}
-       }
-    };
-
-    window.addEventListener('storage', handleStorageEvent);
     return () => {
-       window.removeEventListener('storage', handleStorageEvent);
        window.removeEventListener('scroll', handleScroll);
     };
   }, []);
@@ -166,37 +152,16 @@ const Layout: React.FC<LayoutProps> = ({ children, toggleTheme, isDark }) => {
               </nav>
 
               <div className="flex items-center space-x-2 md:space-x-4">
-                <Link to="/videos" className="hidden md:flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 transition-colors">
-                  <PlayCircle size={20} />
-                </Link>
-                
                 <button onClick={toggleTheme} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 transition-all">
                   {isDark ? <Sun size={20} className="text-yellow-400" /> : <Moon size={20} />}
                 </button>
-
-                <div className="hidden md:block relative group">
-                   <button className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 hover:bg-primary hover:text-white transition-all">
-                      <Search size={18} />
-                   </button>
-                   <div className="absolute right-0 top-full pt-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 w-72 transform origin-top-right z-50">
-                      <form onSubmit={handleSearch} className="bg-white dark:bg-dark-lighter p-3 rounded-2xl shadow-2xl border border-gray-100 dark:border-white/10 flex">
-                         <input 
-                           type="text" 
-                           className="flex-1 bg-transparent border-none outline-none text-sm px-2 text-slate-900 dark:text-white placeholder-gray-400 font-bold"
-                           placeholder="Search stories..."
-                           value={searchQuery}
-                           onChange={(e) => setSearchQuery(e.target.value)}
-                         />
-                      </form>
-                   </div>
-                </div>
 
                 {currentUser ? (
                   <div onClick={() => navigate('/profile')} className="hidden md:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
                      <img src={currentUser.avatar} alt="User" className="w-10 h-10 rounded-full border-2 border-white dark:border-gray-700 shadow-sm object-cover" />
                   </div>
                 ) : (
-                  <button onClick={() => setIsAuthOpen(true)} className="hidden md:flex items-center bg-primary hover:bg-rose-700 text-white px-5 py-2 rounded-full font-bold text-sm shadow-lg shadow-primary/30 transition-all transform active:scale-95 border-0">
+                  <button onClick={() => setIsAuthOpen(true)} className="hidden md:flex items-center bg-primary hover:bg-rose-700 text-white px-5 py-2 rounded-full font-bold text-sm shadow-lg transition-all transform active:scale-95 border-0">
                      Sign In
                   </button>
                 )}
@@ -210,45 +175,73 @@ const Layout: React.FC<LayoutProps> = ({ children, toggleTheme, isDark }) => {
         </div>
       )}
 
-      {/* Mobile Menu */}
+      {/* --- Optimized Mobile Drawer --- */}
       {!isVideoPage && (
-        <div className={`fixed inset-0 bg-white/98 dark:bg-dark-deep/98 backdrop-blur-xl z-[60] transition-all duration-500 lg:hidden flex flex-col ${isMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full pointer-events-none'}`}>
-          <div className="p-6 flex justify-between items-center">
-             <Logo className="w-10 h-10" withText={true} />
+        <div className={`fixed inset-0 bg-white dark:bg-dark-deep z-[60] transition-all duration-500 lg:hidden flex flex-col ${isMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full pointer-events-none'}`}>
+          <div className="p-5 flex justify-between items-center border-b border-gray-100 dark:border-white/5 shrink-0">
+             <Logo className="w-8 h-8" withText={true} />
              <button onClick={() => setIsMenuOpen(false)} className="p-2 rounded-full bg-gray-100 dark:bg-white/10">
                 <X size={24} className="text-slate-950 dark:text-white"/>
              </button>
           </div>
 
-          <div className="flex-1 flex flex-col justify-center px-8 space-y-10">
-              <form onSubmit={handleSearch} className="relative w-full">
+          <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-hide flex flex-col">
+              <form onSubmit={handleSearch} className="relative w-full mb-8">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
-                  type="text"
-                  placeholder="Search stories..."
-                  className="w-full py-4 bg-transparent border-b-2 border-slate-200 dark:border-slate-800 outline-none text-2xl font-black text-slate-950 dark:text-white"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                    type="text"
+                    placeholder="Search stories..."
+                    className="w-full pl-12 pr-4 py-3.5 bg-gray-100 dark:bg-white/5 rounded-2xl outline-none text-lg font-bold text-slate-950 dark:text-white"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </form>
-              <nav className="flex flex-col space-y-6">
-                 <Link to="/" onClick={() => setIsMenuOpen(false)} className="text-4xl font-black text-slate-950 dark:text-white">Home</Link>
-                 {CATEGORIES.map(cat => (
-                   <Link key={cat} to={`/category/${cat}`} onClick={() => setIsMenuOpen(false)} className="text-4xl font-black text-slate-900 dark:text-white">{cat}</Link>
-                 ))}
-                 <Link to="/weather" onClick={() => setIsMenuOpen(false)} className="text-4xl font-black text-blue-600">Weather</Link>
-                 <Link to="/videos" onClick={() => setIsMenuOpen(false)} className="text-4xl font-black text-primary">Videos</Link>
+
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 ml-1">Main Pages</h4>
+              <nav className="flex flex-col space-y-2 mb-8">
+                 <Link to="/" onClick={() => setIsMenuOpen(false)} className={`flex items-center justify-between p-4 rounded-2xl text-xl font-black ${location.pathname === '/' ? 'bg-primary text-white' : 'text-slate-900 dark:text-white bg-gray-50 dark:bg-white/5'}`}>
+                    Home <ChevronRight size={18} />
+                 </Link>
+                 <Link to="/videos" onClick={() => setIsMenuOpen(false)} className={`flex items-center justify-between p-4 rounded-2xl text-xl font-black ${location.pathname === '/videos' ? 'bg-primary text-white' : 'text-slate-900 dark:text-white bg-gray-50 dark:bg-white/5'}`}>
+                    Videos <PlayCircle size={18} className="text-primary" />
+                 </Link>
+                 <Link to="/weather" onClick={() => setIsMenuOpen(false)} className={`flex items-center justify-between p-4 rounded-2xl text-xl font-black ${location.pathname === '/weather' ? 'bg-primary text-white' : 'text-slate-900 dark:text-white bg-gray-50 dark:bg-white/5'}`}>
+                    Weather <CloudRain size={18} className="text-blue-500" />
+                 </Link>
               </nav>
-              {currentUser ? (
-                <div onClick={() => { navigate('/profile'); setIsMenuOpen(false); }} className="flex items-center gap-4 pt-8 border-t border-slate-200 dark:border-slate-800">
-                  <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-primary shadow-lg" alt="User" />
-                  <div>
-                    <p className="font-bold text-xl text-slate-950 dark:text-white">{currentUser.name}</p>
-                    <p className="text-sm text-slate-600">{currentUser.email || currentUser.phoneNumber}</p>
+
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 ml-1">Categories</h4>
+              <div className="grid grid-cols-2 gap-3 mb-10">
+                 {CATEGORIES.map(cat => (
+                   <Link key={cat} to={`/category/${cat}`} onClick={() => setIsMenuOpen(false)} className="p-4 rounded-2xl bg-gray-50 dark:bg-white/5 text-sm font-bold text-slate-900 dark:text-white border border-transparent hover:border-primary transition-colors text-center capitalize">
+                      {cat}
+                   </Link>
+                 ))}
+              </div>
+
+              {/* Login Section - Fixed at Bottom of Menu Scroll */}
+              <div className="mt-auto pt-6 border-t border-gray-100 dark:border-white/5 pb-10">
+                {currentUser ? (
+                  <div onClick={() => { navigate('/profile'); setIsMenuOpen(false); }} className="flex items-center gap-4 p-4 rounded-3xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/5 active:scale-95 transition-transform">
+                    <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-primary shadow-lg object-cover" alt="User" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-black text-lg text-slate-950 dark:text-white truncate">{currentUser.name}</p>
+                      <p className="text-xs text-slate-500 font-bold uppercase tracking-tighter truncate">{currentUser.email || currentUser.phoneNumber}</p>
+                    </div>
+                    <Settings size={20} className="text-gray-400" />
                   </div>
-                </div>
-              ) : (
-                <button onClick={() => { setIsAuthOpen(true); setIsMenuOpen(false); }} className="w-full bg-primary text-white py-5 rounded-2xl font-bold text-xl shadow-xl shadow-primary/30">Sign In to Roza News</button>
-              )}
+                ) : (
+                  <div className="space-y-3">
+                     <button 
+                        onClick={() => { setIsAuthOpen(true); setIsMenuOpen(false); }} 
+                        className="w-full bg-primary text-white py-5 rounded-[2rem] font-black text-xl shadow-xl shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-3"
+                     >
+                        <LogIn size={24} /> Sign In to Roza
+                     </button>
+                     <p className="text-center text-[10px] text-gray-500 font-bold uppercase tracking-widest">Access premium stories and alerts</p>
+                  </div>
+                )}
+              </div>
           </div>
         </div>
       )}
@@ -283,7 +276,6 @@ const Layout: React.FC<LayoutProps> = ({ children, toggleTheme, isDark }) => {
                   {CATEGORIES.slice(0, 5).map(c => (
                     <li key={c}><Link to={`/category/${c}`} className="text-slate-400 hover:text-white transition-colors flex items-center group font-bold"><ChevronRight size={12} className="mr-2 opacity-0 group-hover:opacity-100 transition-all"/>{c}</Link></li>
                   ))}
-                  <li><Link to="/weather" className="text-slate-400 hover:text-white flex items-center group font-bold"><ChevronRight size={12} className="mr-2 opacity-0 group-hover:opacity-100 transition-all"/>Weather</Link></li>
                 </ul>
               </div>
 
@@ -310,7 +302,6 @@ const Layout: React.FC<LayoutProps> = ({ children, toggleTheme, isDark }) => {
                    <button type="submit" className="absolute right-2 top-2 bottom-2 bg-primary hover:bg-rose-700 text-white font-black px-6 rounded-lg transition-all active:scale-95 shadow-lg border-0">Join</button>
                 </form>
                 {newsletterStatus === 'success' && <div className="text-green-400 text-sm mt-3 font-bold flex items-center gap-2"><CheckCircle size={14}/> Subscribed successfully!</div>}
-                {newsletterStatus === 'already' && <div className="text-yellow-400 text-sm mt-3 font-bold flex items-center gap-2"><AlertTriangle size={14}/> Already subscribed.</div>}
               </div>
             </div>
             
@@ -319,7 +310,6 @@ const Layout: React.FC<LayoutProps> = ({ children, toggleTheme, isDark }) => {
                <div className="flex gap-8 mt-6 md:mt-0">
                   <Link to="/privacy" className="hover:text-white transition-colors font-bold">Privacy</Link>
                   <Link to="/terms" className="hover:text-white transition-colors font-bold">Terms</Link>
-                  <Link to="/sitemap" className="hover:text-white transition-colors font-bold">Sitemap</Link>
                </div>
             </div>
           </div>
