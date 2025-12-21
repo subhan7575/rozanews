@@ -26,9 +26,9 @@ export const GithubService = {
     }
 
     const safeConfig = {
-      token: "REPLACE_WITH_SPLIT_TOKEN",
-      owner: githubConfig?.owner || '',
-      repo: githubConfig?.repo || '',
+      token: "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",
+      owner: githubConfig?.owner || 'subhan7575',
+      repo: githubConfig?.repo || 'rozanews',
       branch: githubConfig?.branch || 'main'
     };
 
