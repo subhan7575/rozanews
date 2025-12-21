@@ -13,7 +13,7 @@ import {
   updateProfile,
   User
 } from "firebase/auth";
-import { getFirestore, Firestore, doc, setDoc, initializeFirestore } from "firebase/firestore";
+import { getFirestore, Firestore, doc, setDoc, initializeFirestore, collection, getDocs, query, limit } from "firebase/firestore";
 
 import { UserProfile } from "../types";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, ADMIN_EMAILS } from "../constants";
@@ -60,12 +60,18 @@ const googleProvider = new GoogleAuthProvider();
 export const AuthService = {
   getAuthInstance: () => getFirebaseAuth(),
 
+  /**
+   * Syncs user profile to global Firestore 'users' collection
+   */
   syncUserToCloud: async (user: UserProfile) => {
     try {
       const db = getFirebaseDb();
-      await setDoc(doc(db, "users", user.id), user, { merge: true });
+      await setDoc(doc(db, "users", user.id), {
+        ...user,
+        lastActive: new Date().toISOString()
+      }, { merge: true });
     } catch (e) {
-      console.warn("Cloud user sync failed:", e);
+      console.error("Cloud sync failed:", e);
     }
   },
 
@@ -151,7 +157,8 @@ export const AuthService = {
   signInWithPhone: async (phoneNumber: string, appVerifier: any) => {
     try {
       const auth = getFirebaseAuth();
-      return await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+      const result = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+      return result;
     } catch (err: any) {
       throw err;
     }
@@ -163,10 +170,10 @@ export const AuthService = {
   },
 
   mapFirebaseUserToProfile: (firebaseUser: User | null): UserProfile => {
-    if (!firebaseUser) throw new Error("User mapping failed: No firebase user.");
+    if (!firebaseUser) throw new Error("User mapping failed.");
 
     const email = firebaseUser.email || "";
-    const role = ADMIN_EMAILS.includes(email) ? "admin" : "user";
+    const role = ADMIN_EMAILS.some(e => e.toLowerCase() === email.toLowerCase()) ? "admin" : "user";
     const name = firebaseUser.displayName || (firebaseUser.phoneNumber ? "Mobile User" : "Roza Reader");
 
     return {
@@ -215,7 +222,7 @@ export const MediaService = {
         const data = await response.json();
         if (data.secure_url) return data.secure_url;
       } catch (err) {
-        console.error("Cloudinary upload failed, falling back to local compression", err);
+        console.error("Cloudinary upload failed", err);
       }
     }
 
@@ -247,7 +254,6 @@ export const MediaService = {
           ctx.drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL("image/jpeg", 0.8));
         };
-        img.onerror = () => resolve(reader.result as string);
       };
       reader.onerror = reject;
     });
