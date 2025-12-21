@@ -49,9 +49,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
 
   if (!isOpen) return null;
 
-  const handleSuccess = (user: UserProfile) => {
+  const handleSuccess = async (user: UserProfile) => {
      setLoggedInUser(user);
+     // Update both local and cloud registry
      StorageService.externalLogin(user);
+     await AuthService.syncUserToCloud(user);
+     
      if ('Notification' in window && Notification.permission === 'default') {
         setShowPermissionStep(true);
      } else {
@@ -60,7 +63,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
      }
   };
 
-  // Fix: handleAllowNotifications updated to use existing updateUserProfile method
   const handleAllowNotifications = async () => {
      let userToReturn = loggedInUser;
      try {
@@ -69,6 +71,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
           const updatedUser = { ...loggedInUser, notificationsEnabled: true };
           userToReturn = updatedUser;
           StorageService.updateUserProfile(updatedUser);
+          await AuthService.syncUserToCloud(updatedUser);
           setLoggedInUser(updatedUser);
           new Notification("Notifications Enabled", {
              body: "You will now receive updates for new stories!",
@@ -83,14 +86,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
      }
   };
 
-  // Fix: handleSkipNotifications updated to use existing updateUserProfile method
   const handleSkipNotifications = () => {
      let userToReturn = loggedInUser;
      if (loggedInUser) {
         const updatedUser = { ...loggedInUser, notificationsEnabled: false };
         userToReturn = updatedUser;
         StorageService.updateUserProfile(updatedUser);
-        setLoggedInUser(updatedUser);
      }
      if (userToReturn) onLoginSuccess(userToReturn);
      onClose();
@@ -109,7 +110,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
       } else {
         user = await AuthService.loginWithEmail(email, password);
       }
-      if (user) handleSuccess(user);
+      if (user) await handleSuccess(user);
     } catch (err: any) {
       console.error("Auth Error:", err);
       if (err.code === 'auth/email-already-in-use') setError("Email already registered.");
@@ -126,7 +127,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
     setError('');
     try {
       const user = await AuthService.signInWithGoogle();
-      if (user) handleSuccess(user);
+      if (user) await handleSuccess(user);
     } catch (err: any) {
       setError(err.message || "Google Sign In Failed");
     } finally {
@@ -175,7 +176,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSuccess }
     try {
       const result = await confirmationResult.confirm(otp);
       const user = AuthService.mapFirebaseUserToProfile(result.user);
-      handleSuccess(user);
+      await handleSuccess(user);
     } catch (err: any) {
       setError("Incorrect code. Please check the SMS.");
     } finally {
