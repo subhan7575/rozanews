@@ -45,12 +45,10 @@ const getFirebaseAuth = () => {
 export const getFirebaseDb = () => {
   if (!dbInstance) {
     try {
-      // experimentalForceLongPolling fixes connectivity issues in cloud IDE environments
       dbInstance = initializeFirestore(app, {
         experimentalForceLongPolling: true,
       });
     } catch (e) {
-      // In case it's already been initialized by another call
       dbInstance = getFirestore(app);
     }
   }
@@ -189,10 +187,17 @@ export const AuthService = {
 
 export const MediaService = {
   uploadFile: async (file: File, folder = "uploads"): Promise<string> => {
-    // Break cycle: read from localStorage directly
-    const savedConfig = JSON.parse(localStorage.getItem('roza_cloudinary_config') || '{}');
-    const cloudName = savedConfig.cloudName || CLOUDINARY_CLOUD_NAME;
-    const preset = savedConfig.uploadPreset || CLOUDINARY_UPLOAD_PRESET;
+    let cloudName = CLOUDINARY_CLOUD_NAME;
+    let preset = CLOUDINARY_UPLOAD_PRESET;
+
+    try {
+      const savedConfigStr = localStorage.getItem('roza_cloudinary_config');
+      if (savedConfigStr) {
+         const savedConfig = JSON.parse(savedConfigStr);
+         if (savedConfig.cloudName) cloudName = savedConfig.cloudName;
+         if (savedConfig.uploadPreset) preset = savedConfig.uploadPreset;
+      }
+    } catch (e) {}
 
     if (cloudName && cloudName !== "demo" && preset) {
       try {
@@ -210,7 +215,7 @@ export const MediaService = {
         const data = await response.json();
         if (data.secure_url) return data.secure_url;
       } catch (err) {
-        console.error("Cloudinary error:", err);
+        console.error("Cloudinary upload failed, falling back to local compression", err);
       }
     }
 
