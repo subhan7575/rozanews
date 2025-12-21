@@ -2,7 +2,7 @@
 import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, UserProfile, Message, TickerConfig, JobPosition, JobApplication, GlobalSEOConfig } from './types';
 
 // --- ROZA NEWS: GLOBAL DATA REPOSITORY ---
-export const DATA_TIMESTAMP = 1732000000001; 
+export const DATA_TIMESTAMP = 1732000000002; 
 
 export const CATEGORIES = ['World', 'Business', 'Sports', 'Technology', 'Health', 'Entertainment'];
 
@@ -15,6 +15,7 @@ export const DEFAULT_API_KEY = "AIzaSyAESByRBukp36X65kLNRdobGVUWPWDFMsM";
 
 export const DEFAULT_GITHUB_TOKEN = "ghp_" + "riLjLjqAg0G9mkgYwg8acB2hHU5cj21smBkE";
 
+// These must be exported for MediaService/Firebase
 export const CLOUDINARY_CLOUD_NAME = "demo";
 export const CLOUDINARY_UPLOAD_PRESET = "roza_preset";
 
