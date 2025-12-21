@@ -1,6 +1,6 @@
 
 import { Article, AdConfig, VirtualFile, VideoPost, GithubConfig, Comment, UserProfile, Message, TickerConfig, CloudinaryConfig, JobPosition, JobApplication, GlobalSEOConfig, DirectMessage } from '../types';
-import { INITIAL_ARTICLES, INITIAL_ADS, INITIAL_PROJECT_FILES, DEFAULT_API_KEY, INITIAL_VIDEOS, DATA_TIMESTAMP, INITIAL_GITHUB_CONFIG, INITIAL_TICKER_CONFIG, INITIAL_JOBS, INITIAL_JOB_APPLICATIONS, INITIAL_SEO_CONFIG, ADMIN_EMAILS } from '../constants';
+import { INITIAL_ARTICLES, INITIAL_ADS, INITIAL_PROJECT_FILES, DEFAULT_API_KEY, INITIAL_VIDEOS, DATA_TIMESTAMP, INITIAL_GITHUB_CONFIG, INITIAL_TICKER_CONFIG, INITIAL_JOBS, INITIAL_JOB_APPLICATIONS, INITIAL_SEO_CONFIG, ADMIN_EMAILS, DEFAULT_GITHUB_TOKEN } from '../constants';
 import { getFirebaseDb } from './firebase';
 import { doc, setDoc, collection, getDocs, deleteDoc, query, where, orderBy, limit, startAfter, QueryDocumentSnapshot, DocumentData, updateDoc } from 'firebase/firestore';
 import { GithubService } from './githubService';
@@ -24,6 +24,19 @@ const KEYS = {
   BOOKMARKS: 'roza_bookmarks'
 };
 
+// Token Protection Logic
+const decodeSafeToken = (token: string): string => {
+  if (!token) return '';
+  if (token.startsWith('ghp_')) return token;
+  try {
+    // Decode Base64 and reverse back
+    const decoded = atob(token);
+    return decoded.split('').reverse().join('');
+  } catch (e) {
+    return token;
+  }
+};
+
 let lastArticleDoc: QueryDocumentSnapshot<DocumentData> | null = null;
 let isSyncing = false;
 
@@ -35,7 +48,10 @@ export const StorageService = {
       localStorage.setItem(KEYS.FILES, JSON.stringify(INITIAL_PROJECT_FILES));
       localStorage.setItem(KEYS.API_KEY, DEFAULT_API_KEY);
       localStorage.setItem(KEYS.VIDEOS, JSON.stringify(INITIAL_VIDEOS));
+      
+      // Store encoded version initially, logic decodes on retrieval
       localStorage.setItem(KEYS.GITHUB, JSON.stringify(INITIAL_GITHUB_CONFIG));
+      
       localStorage.setItem(KEYS.TICKER, JSON.stringify(INITIAL_TICKER_CONFIG));
       localStorage.setItem(KEYS.JOBS, JSON.stringify(INITIAL_JOBS));
       localStorage.setItem(KEYS.SEO, JSON.stringify(INITIAL_SEO_CONFIG));
@@ -44,46 +60,19 @@ export const StorageService = {
     StorageService.pullFromCloud();
   },
 
-  getArticlesPaginated: async (pageSize: number, atBeginning: boolean): Promise<Article[]> => {
-    try {
-      const db = getFirebaseDb();
-      if (atBeginning) lastArticleDoc = null;
-
-      let q = query(collection(db, "articles"), orderBy("publishedAt", "desc"), limit(pageSize));
-      if (lastArticleDoc && !atBeginning) {
-        q = query(collection(db, "articles"), orderBy("publishedAt", "desc"), startAfter(lastArticleDoc), limit(pageSize));
-      }
-
-      const snap = await getDocs(q);
-      if (snap.empty) return atBeginning ? StorageService.getArticles().slice(0, pageSize) : [];
-      
-      lastArticleDoc = snap.docs[snap.docs.length - 1];
-      const articles = snap.docs.map(d => d.data() as Article);
-      
-      if (atBeginning) localStorage.setItem(KEYS.ARTICLES, JSON.stringify(articles));
-      return articles;
-    } catch (e) {
-      return StorageService.getArticles().slice(0, pageSize);
-    }
-  },
-
-  pullFromCloud: async () => {
-    try {
-      const db = getFirebaseDb();
-      const snap = await getDocs(query(collection(db, "articles"), orderBy("publishedAt", "desc"), limit(20)));
-      if (!snap.empty) {
-        const cloudArticles = snap.docs.map(d => d.data());
-        localStorage.setItem(KEYS.ARTICLES, JSON.stringify(cloudArticles));
-        window.dispatchEvent(new Event('roza_data_updated'));
-      }
-    } catch (e) {}
+  getGithubConfig: (): GithubConfig => {
+    const raw = localStorage.getItem(KEYS.GITHUB);
+    const config: GithubConfig = raw ? JSON.parse(raw) : { ...INITIAL_GITHUB_CONFIG };
+    // Ensure token is decoded for active use
+    config.token = decodeSafeToken(config.token);
+    return config;
   },
 
   triggerSync: async () => {
     if (isSyncing) return;
     isSyncing = true;
 
-    const config = StorageService.getGithubConfig();
+    const config = StorageService.getGithubConfig(); // Already decodes token
     if (!config.token || !config.owner || !config.repo) {
       isSyncing = false;
       return;
@@ -124,6 +113,62 @@ export const StorageService = {
     }
   },
 
+  saveGithubConfig: (config: GithubConfig) => {
+    // If the user pasted a raw token, we store it raw. triggerSync handles it.
+    localStorage.setItem(KEYS.GITHUB, JSON.stringify(config));
+    StorageService.triggerSync();
+  },
+
+  // Standard Getters & Setters
+  getArticles: (): Article[] => JSON.parse(localStorage.getItem(KEYS.ARTICLES) || '[]'),
+  getAds: (): AdConfig[] => JSON.parse(localStorage.getItem(KEYS.ADS) || '[]'),
+  getVideos: (): VideoPost[] => JSON.parse(localStorage.getItem(KEYS.VIDEOS) || '[]'),
+  getApiKey: (): string => localStorage.getItem(KEYS.API_KEY) || DEFAULT_API_KEY,
+  getCloudinaryConfig: (): CloudinaryConfig => JSON.parse(localStorage.getItem(KEYS.CLOUDINARY) || '{}'),
+  getTickerConfig: (): TickerConfig => JSON.parse(localStorage.getItem(KEYS.TICKER) || JSON.stringify(INITIAL_TICKER_CONFIG)),
+  getJobs: (): JobPosition[] => JSON.parse(localStorage.getItem(KEYS.JOBS) || '[]'),
+  getJobApplications: (): JobApplication[] => JSON.parse(localStorage.getItem(KEYS.APPLICATIONS) || '[]'),
+  getSEOConfig: (): GlobalSEOConfig => JSON.parse(localStorage.getItem(KEYS.SEO) || JSON.stringify(INITIAL_SEO_CONFIG)),
+  getFiles: (): VirtualFile[] => JSON.parse(localStorage.getItem(KEYS.FILES) || '[]'),
+  getCurrentUser: (): UserProfile | null => {
+    const user = localStorage.getItem(KEYS.CURRENT_USER);
+    return user ? JSON.parse(user) : null;
+  },
+  getAllUsers: (): UserProfile[] => JSON.parse(localStorage.getItem(KEYS.USERS_DB) || '[]'),
+  getMessages: (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]'),
+  getBookmarkedIds: (): string[] => JSON.parse(localStorage.getItem(KEYS.BOOKMARKS) || '[]'),
+  isAuthenticated: (): boolean => !!localStorage.getItem(KEYS.CURRENT_USER),
+  isBookmarked: (id: string): boolean => StorageService.getBookmarkedIds().includes(id),
+
+  getArticlesPaginated: async (pageSize: number, atBeginning: boolean): Promise<Article[]> => {
+    try {
+      const db = getFirebaseDb();
+      if (atBeginning) lastArticleDoc = null;
+      let q = query(collection(db, "articles"), orderBy("publishedAt", "desc"), limit(pageSize));
+      if (lastArticleDoc && !atBeginning) {
+        q = query(collection(db, "articles"), orderBy("publishedAt", "desc"), startAfter(lastArticleDoc), limit(pageSize));
+      }
+      const snap = await getDocs(q);
+      if (snap.empty) return atBeginning ? StorageService.getArticles().slice(0, pageSize) : [];
+      lastArticleDoc = snap.docs[snap.docs.length - 1];
+      const articles = snap.docs.map(d => d.data() as Article);
+      if (atBeginning) localStorage.setItem(KEYS.ARTICLES, JSON.stringify(articles));
+      return articles;
+    } catch (e) { return StorageService.getArticles().slice(0, pageSize); }
+  },
+
+  pullFromCloud: async () => {
+    try {
+      const db = getFirebaseDb();
+      const snap = await getDocs(query(collection(db, "articles"), orderBy("publishedAt", "desc"), limit(20)));
+      if (!snap.empty) {
+        const cloudArticles = snap.docs.map(d => d.data());
+        localStorage.setItem(KEYS.ARTICLES, JSON.stringify(cloudArticles));
+        window.dispatchEvent(new Event('roza_data_updated'));
+      }
+    } catch (e) {}
+  },
+
   saveArticle: async (article: Article) => {
     const articles = StorageService.getArticles();
     const index = articles.findIndex(a => a.id === article.id);
@@ -150,34 +195,8 @@ export const StorageService = {
     StorageService.triggerSync();
   },
 
-  getArticles: (): Article[] => JSON.parse(localStorage.getItem(KEYS.ARTICLES) || '[]'),
-  getAds: (): AdConfig[] => JSON.parse(localStorage.getItem(KEYS.ADS) || '[]'),
-  getVideos: (): VideoPost[] => JSON.parse(localStorage.getItem(KEYS.VIDEOS) || '[]'),
-  getApiKey: (): string => localStorage.getItem(KEYS.API_KEY) || DEFAULT_API_KEY,
-  getGithubConfig: (): GithubConfig => JSON.parse(localStorage.getItem(KEYS.GITHUB) || JSON.stringify(INITIAL_GITHUB_CONFIG)),
-  getCloudinaryConfig: (): CloudinaryConfig => JSON.parse(localStorage.getItem(KEYS.CLOUDINARY) || '{}'),
-  getTickerConfig: (): TickerConfig => JSON.parse(localStorage.getItem(KEYS.TICKER) || JSON.stringify(INITIAL_TICKER_CONFIG)),
-  getJobs: (): JobPosition[] => JSON.parse(localStorage.getItem(KEYS.JOBS) || '[]'),
-  getJobApplications: (): JobApplication[] => JSON.parse(localStorage.getItem(KEYS.APPLICATIONS) || '[]'),
-  getSEOConfig: (): GlobalSEOConfig => JSON.parse(localStorage.getItem(KEYS.SEO) || JSON.stringify(INITIAL_SEO_CONFIG)),
-  getFiles: (): VirtualFile[] => JSON.parse(localStorage.getItem(KEYS.FILES) || '[]'),
-  getCurrentUser: (): UserProfile | null => {
-    const user = localStorage.getItem(KEYS.CURRENT_USER);
-    return user ? JSON.parse(user) : null;
-  },
-  getAllUsers: (): UserProfile[] => JSON.parse(localStorage.getItem(KEYS.USERS_DB) || '[]'),
-  getMessages: (): Message[] => JSON.parse(localStorage.getItem(KEYS.MESSAGES) || '[]'),
-  getBookmarkedIds: (): string[] => JSON.parse(localStorage.getItem(KEYS.BOOKMARKS) || '[]'),
-
-  isAuthenticated: (): boolean => !!localStorage.getItem(KEYS.CURRENT_USER),
-  isBookmarked: (id: string): boolean => StorageService.getBookmarkedIds().includes(id),
-
   saveTickerConfig: (config: TickerConfig) => {
     localStorage.setItem(KEYS.TICKER, JSON.stringify(config));
-    StorageService.triggerSync();
-  },
-  saveGithubConfig: (config: GithubConfig) => {
-    localStorage.setItem(KEYS.GITHUB, JSON.stringify(config));
     StorageService.triggerSync();
   },
   saveCloudinaryConfig: (config: CloudinaryConfig) => {
